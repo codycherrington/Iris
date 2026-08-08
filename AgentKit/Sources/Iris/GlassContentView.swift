@@ -2,10 +2,10 @@ import AppKit
 import SwiftUI
 
 struct GlassContentView: View {
-    @State private var model = SessionModel(
-        workingDirectory: URL(fileURLWithPath: NSHomeDirectory())
-    )
+    @State private var personas = PersonaStore.shared
+    @State private var model = SessionModel(persona: PersonaStore.shared.persona)
     @State private var draft = ""
+    @State private var showingPersona = false
     @FocusState private var composerFocused: Bool
     @Namespace private var glass
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -19,12 +19,47 @@ struct GlassContentView: View {
                 composer
                 GlassStatusBar(stats: model.stats, isBusy: model.isBusy,
                                directory: model.workingDirectory,
+                               assistantName: model.persona.assistantName,
                                namespace: glass,
-                               onPickDirectory: pickDirectory)
+                               onPickDirectory: pickDirectory,
+                               onEditPersona: {
+                                   // Iris may have edited the file itself since launch.
+                                   personas.reload()
+                                   showingPersona = true
+                               })
             }
         }
         .frame(minWidth: 640, minHeight: 480)
-        .task { await model.start() }
+        .task {
+            // Don't launch a session behind the first-run wizard: the persona is a launch
+            // argument, so a session started now would have to be torn down and relaunched
+            // the moment the wizard is answered.
+            if personas.needsSetup {
+                showingPersona = true
+            } else {
+                await model.start()
+            }
+        }
+        .sheet(isPresented: $showingPersona) {
+            PersonaWizard(
+                persona: personas.persona,
+                onComplete: { persona in
+                    let wasFirstRun = personas.needsSetup
+                    personas.save(persona)
+                    showingPersona = false
+                    Task {
+                        if wasFirstRun {
+                            await model.applyPersona(persona)
+                            await model.start()
+                        } else {
+                            await model.applyPersona(persona)
+                        }
+                    }
+                },
+                // No cancel on first run — there's no session behind it to go back to.
+                onCancel: personas.needsSetup ? nil : { showingPersona = false }
+            )
+        }
         .overlay(alignment: .top) {
             if let error = model.fatalError {
                 GlassErrorBanner(text: error) { Task { await model.start() } }
@@ -201,23 +236,39 @@ struct SendButton: View {
 
 /// A slow spectral wash behind the glass. Liquid Glass refracts what's behind it, so with a
 /// flat background it reads as frosted plastic — this gives it something to bend.
+///
+/// The wash also leans toward the pointer. Not a chase: the blobs are tugged a bounded
+/// distance from where they already are, on a long spring, so it reads as the light noticing
+/// you rather than following you.
 struct AuroraBackdrop: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @Environment(\.colorScheme) private var scheme
     @State private var drift = false
+    /// Cursor offset from the window centre, normalised to -1…1 on each axis.
+    @State private var pull: CGSize = .zero
+    @State private var monitor: Any?
+
+    /// Maximum lean, in points. Deliberately small — past roughly 40 it stops looking like
+    /// light bending and starts looking like a cursor-tracking gimmick.
+    private static let maxPull: CGFloat = 34
+    /// Per-blob parallax factor. The front blob leans furthest and the back ones lag, which
+    /// is what gives depth instead of one flat sheet sliding around.
+    private static let depth: [CGFloat] = [1.0, 0.6, 0.35]
 
     var body: some View {
         ZStack {
             Rectangle().fill(Tok.Palette.background)
 
             ForEach(Array(Tok.Palette.spectrum.enumerated()), id: \.offset) { index, color in
+                let lean = Self.depth[index % Self.depth.count] * Self.maxPull
                 Ellipse()
-                    .fill(color.opacity(scheme == .dark ? 0.30 : 0.16))
+                    .fill(color.opacity(0.30))
                     .frame(width: 460, height: 340)
                     .blur(radius: 110)
                     .offset(
-                        x: drift ? CGFloat(120 - index * 130) : CGFloat(-90 + index * 110),
-                        y: drift ? CGFloat(-130 + index * 120) : CGFloat(150 - index * 90)
+                        x: (drift ? CGFloat(120 - index * 130) : CGFloat(-90 + index * 110))
+                            + pull.width * lean,
+                        y: (drift ? CGFloat(-130 + index * 120) : CGFloat(150 - index * 90))
+                            + pull.height * lean
                     )
             }
         }
@@ -227,8 +278,44 @@ struct AuroraBackdrop: View {
             withAnimation(.easeInOut(duration: 18).repeatForever(autoreverses: true)) {
                 drift = true
             }
+            startTracking()
         }
+        .onDisappear(perform: stopTracking)
         .accessibilityHidden(true)
+    }
+
+    /// A local event monitor rather than `onContinuousHover`: the backdrop sits underneath
+    /// the entire UI, so hover would be swallowed by whatever chrome is on top of it.
+    private func startTracking() {
+        monitor = NSEvent.addLocalMonitorForEvents(matching: [.mouseMoved]) { event in
+            MainActor.assumeIsolated {
+                guard let window = event.window else { return }
+                let size = window.frame.size
+                guard size.width > 1, size.height > 1 else { return }
+
+                let point = event.locationInWindow
+                let nx = min(max((point.x / size.width) * 2 - 1, -1), 1)
+                let ny = min(max((point.y / size.height) * 2 - 1, -1), 1)
+                // AppKit's origin is bottom-left; SwiftUI's offset runs top-down.
+                let next = CGSize(width: nx, height: -ny)
+
+                // Mouse-moved fires ~100×/s and each blob carries a 110pt blur, so redrawing
+                // on every event is real work for sub-pixel movement. Ignore anything under
+                // ~0.3pt of actual lean; the spring interpolates across the gaps anyway.
+                guard abs(next.width - pull.width) > 0.01
+                        || abs(next.height - pull.height) > 0.01 else { return }
+
+                withAnimation(.spring(response: 1.7, dampingFraction: 0.95)) {
+                    pull = next
+                }
+            }
+            return event
+        }
+    }
+
+    private func stopTracking() {
+        if let monitor { NSEvent.removeMonitor(monitor) }
+        monitor = nil
     }
 }
 
@@ -238,8 +325,10 @@ struct GlassStatusBar: View {
     let stats: SessionStats
     let isBusy: Bool
     let directory: URL
+    let assistantName: String
     let namespace: Namespace.ID
     let onPickDirectory: () -> Void
+    let onEditPersona: () -> Void
 
     var body: some View {
         GlassEffectContainer(spacing: Tok.Fusion.status) {
@@ -255,6 +344,18 @@ struct GlassStatusBar: View {
                 .buttonStyle(.plain)
                 .glassEffect(Tok.Surface.interactive, in: .capsule)
                 .help(directory.path)
+
+                Button(action: onEditPersona) {
+                    HStack(spacing: 4) {
+                        Image(systemName: "person.fill").font(.system(size: 8))
+                        Text(assistantName.isEmpty ? "persona" : assistantName).lineLimit(1)
+                    }
+                    .padding(.horizontal, Tok.Space.snug)
+                    .padding(.vertical, 5)
+                }
+                .buttonStyle(.plain)
+                .glassEffect(Tok.Surface.interactive, in: .capsule)
+                .help("Edit persona — restarts the session")
 
                 // Green means running on the subscription. The one indicator that must never
                 // be subtle — and must never imply API billing before it has any data.

@@ -64,13 +64,17 @@ final class SessionModel {
     private(set) var isBusy = false
     private(set) var fatalError: String?
     private(set) var workingDirectory: URL
+    /// Applied at process launch via `--append-system-prompt`, so changing it has to restart
+    /// the session — there's no way to re-prompt a running process.
+    private(set) var persona: Persona
 
     private var bridge: AgentBridge?
     private var consumer: Task<Void, Never>?
 
     private static let directoryKey = "iris.workingDirectory"
 
-    init(workingDirectory: URL? = nil) {
+    init(workingDirectory: URL? = nil, persona: Persona = Persona()) {
+        self.persona = persona
         // Remember the last folder so the app doesn't reopen in $HOME every launch — which
         // also means re-triggering macOS's Documents-access prompt each time.
         if let explicit = workingDirectory {
@@ -83,6 +87,15 @@ final class SessionModel {
         }
     }
 
+    /// Swap the persona and relaunch. The system prompt is a launch argument, so an in-place
+    /// update is impossible — restarting is the only honest way to apply it.
+    func applyPersona(_ persona: Persona) async {
+        guard persona != self.persona else { return }
+        self.persona = persona
+        await stop()
+        await start()
+    }
+
     // MARK: Lifecycle
 
     func start() async {
@@ -92,7 +105,8 @@ final class SessionModel {
 
         let bridge = AgentBridge(configuration: AgentConfiguration(
             workingDirectory: workingDirectory,
-            permissionMode: .default
+            permissionMode: .default,
+            appendSystemPrompt: persona.systemPrompt
         ))
         self.bridge = bridge
 

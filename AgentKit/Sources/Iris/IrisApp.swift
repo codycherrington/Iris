@@ -40,6 +40,9 @@ struct WindowChrome: NSViewRepresentable {
         window.titleVisibility = .hidden
         window.styleMask.insert(.fullSizeContentView)
         window.isMovableByWindowBackground = true
+        // Off by default. Without it the window never dispatches mouseMoved, so the
+        // backdrop's pointer-lean monitor would sit silent.
+        window.acceptsMouseMovedEvents = true
         // The SwiftUI content paints the backdrop; an opaque window background would sit
         // on top of it and flatten the glass.
         window.backgroundColor = .clear
