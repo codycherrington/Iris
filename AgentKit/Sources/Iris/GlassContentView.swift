@@ -286,9 +286,8 @@ struct GlassStatusBar: View {
 
                 Spacer()
 
-                if let thinking = stats.thinkingTokens, isBusy {
-                    metric("thinking \(thinking)", tint: Tok.Palette.agent)
-                }
+                // Thinking is reported beside Iris's name in the message itself, where the
+                // reasoning it describes actually happened — not down here in the chrome.
                 if let ttft = stats.ttftMS {
                     metric("ttft \(ttft)ms", tint: nil)
                 }

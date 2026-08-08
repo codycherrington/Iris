@@ -16,12 +16,15 @@ struct GlassMessageRow: View {
         HStack(alignment: .top, spacing: 0) {
             if isUser { Spacer(minLength: Tok.Space.wide) }
 
+            // Actions above the answer: they're the lead-up to it, not a trailing footnote.
+            // Thinking isn't a bubble of its own — the CLI never emits reasoning text, only a
+            // token estimate, so there'd be nothing to open. It rides in the bubble header.
             VStack(alignment: isUser ? .trailing : .leading, spacing: Tok.Space.snug) {
-                if !message.text.isEmpty || message.isStreaming {
-                    contentBody
-                }
                 if !message.toolCalls.isEmpty {
                     ToolChipCluster(calls: message.toolCalls, namespace: namespace)
+                }
+                if !message.text.isEmpty || message.isStreaming {
+                    contentBody
                 }
             }
             .frame(maxWidth: 620, alignment: isUser ? .trailing : .leading)
@@ -34,17 +37,38 @@ struct GlassMessageRow: View {
         .transition(.glassAppear(reduceMotion: reduceMotion))
     }
 
+    @ViewBuilder
     private var contentBody: some View {
+        // Pulse only while there's genuinely nothing to show yet. Once text is actually
+        // streaming, the growing text itself is the "alive" signal — a header badge pinned
+        // above it just looks stuck once the bubble has grown well past it.
+        let isWaiting = message.isStreaming && message.text.isEmpty
         VStack(alignment: isUser ? .trailing : .leading, spacing: Tok.Space.tight) {
             HStack(spacing: Tok.Space.tight) {
                 if isUser {
-                    if message.isStreaming { StreamingPulse() }
                     Text("You").font(Tok.TypeScale.label).foregroundStyle(accent)
                     Circle().fill(accent).frame(width: 5, height: 5)
                 } else {
-                    Circle().fill(accent).frame(width: 5, height: 5)
-                    Text("Iris").font(Tok.TypeScale.label).foregroundStyle(accent)
-                    if message.isStreaming { StreamingPulse() }
+                    // The name and its dot breathe as one while the turn works. Grouped so
+                    // they share a single animation — driven separately they drift apart.
+                    HStack(spacing: Tok.Space.tight) {
+                        Circle().fill(accent).frame(width: 5, height: 5)
+                        Text("Iris").font(Tok.TypeScale.label).foregroundStyle(accent)
+                    }
+                    .breathing(isWaiting)
+
+                    if message.didThink {
+                        // Past tense once the answer starts: the reasoning is over, but how
+                        // much of it there was stays on the record.
+                        Text(isWaiting ? "thinking" : "thought")
+                            .font(Tok.TypeScale.label)
+                            .foregroundStyle(.secondary)
+                    }
+                    if let tokens = message.thinkingTokens, tokens > 0 {
+                        Text("\(tokens) tokens")
+                            .font(Tok.TypeScale.mono)
+                            .foregroundStyle(.tertiary)
+                    }
                 }
             }
 
@@ -69,49 +93,43 @@ struct GlassMessageRow: View {
     }
 }
 
-/// Spectral sweep while tokens are arriving. Reads as light refracting through the glass
-/// rather than a spinner bolted on top.
-struct StreamingPulse: View {
+/// A slow opacity breath while a turn is still working.
+///
+/// Replaces an earlier sweeping-capsule shimmer: a separate animated element beside the name
+/// read as a loading spinner bolted onto the glass. Dimming the label itself says the same
+/// thing without adding a second object to look at.
+struct Breathing: ViewModifier {
+    let isActive: Bool
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var phase: CGFloat = 0
+    @State private var dimmed = false
 
-    var body: some View {
-        Capsule()
-            .fill(
-                LinearGradient(
-                    colors: Tok.Palette.spectrum + [Tok.Palette.spectrum[0]],
-                    startPoint: .leading, endPoint: .trailing
-                )
+    func body(content: Content) -> some View {
+        content
+            .opacity(dimmed ? 0.35 : 1)
+            .animation(
+                isActive && !reduceMotion
+                    ? .easeInOut(duration: 1.2).repeatForever(autoreverses: true)
+                    : .easeOut(duration: 0.2),
+                value: dimmed
             )
-            .frame(width: 26, height: 3)
-            .mask {
-                Capsule().fill(
-                    LinearGradient(
-                        stops: [
-                            .init(color: .clear, location: max(0, phase - 0.35)),
-                            .init(color: .white, location: phase),
-                            .init(color: .clear, location: min(1, phase + 0.35)),
-                        ],
-                        startPoint: .leading, endPoint: .trailing
-                    )
-                )
-            }
-            .opacity(reduceMotion ? 0.9 : 1)
-            .onAppear {
-                guard !reduceMotion else { phase = 0.5; return }
-                withAnimation(.easeInOut(duration: 1.1).repeatForever(autoreverses: false)) {
-                    phase = 1.2
-                }
-            }
-            .accessibilityLabel("Responding")
+            .onAppear { dimmed = isActive && !reduceMotion }
+            .onChange(of: isActive) { _, active in dimmed = active && !reduceMotion }
+            .accessibilityLabel(isActive ? "Responding" : "")
+    }
+}
+
+extension View {
+    /// Breathe while `isActive`; settle to full opacity when it clears.
+    func breathing(_ isActive: Bool) -> some View {
+        modifier(Breathing(isActive: isActive))
     }
 }
 
 // MARK: - Tool chips
 
-/// Tool calls share a union id, so adjacent chips fuse into one liquid blob and split apart
-/// as they resolve. This is the `glassEffectUnion` payoff — it only works inside a
-/// `GlassEffectContainer`.
+/// One chip per action, each its own glass shape. These deliberately do *not* share a
+/// `glassEffectUnion` — adjacent chips fusing into a single blob made a run of tool calls
+/// unreadable as distinct steps.
 struct ToolChipCluster: View {
     let calls: [ToolCall]
     let namespace: Namespace.ID
@@ -166,11 +184,6 @@ struct ToolChip: View {
                 in: .rect(cornerRadius: Tok.Radius.chip)
             )
             .glassEffectID(GlassID.tool(call.id), in: namespace)
-            // Unresolved chips fuse together; resolved ones separate out.
-            .glassEffectUnion(
-                id: call.result == nil ? "tools-pending" : nil,
-                namespace: namespace
-            )
 
             if expanded, let detail = expandedDetail {
                 Text(detail)

@@ -20,9 +20,9 @@ that's a bug at the top of the list.
 | Phase | What | State |
 |---|---|---|
 | 0 | Spike: auth, streaming, perf, permissions | ✅ **GO** — see `docs/devlog/2026-08-07-inception.md` |
-| 1 | `AgentKit` headless core | 🟡 decoder + tests done; `AgentBridge` next |
-| 2 | Minimal chat UI (no glass) — perf gate | ⬜ |
-| 3 | Liquid Glass design system | ⬜ |
+| 1 | `AgentKit` headless core | ✅ bridge, decoder, 24 tests |
+| 2 | Minimal chat UI — perf gate | ✅ **PASS** — see `docs/runs/2026-08-08-phase2-perf-gate.md` |
+| 3 | Liquid Glass design system | ✅ dark theme, glass transcript, composer |
 | 4 | Persona wizard, sidebars, file picker, project switcher | ⬜ |
 | 5 | Subagent tree, session library, permission UI | ⬜ |
 

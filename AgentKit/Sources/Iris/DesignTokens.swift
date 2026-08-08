@@ -34,7 +34,10 @@ enum Tok {
     /// a union id. A value larger than the gap between two controls will silently blend them
     /// into one blob — which is what made the send button look welded to the composer.
     enum Fusion {
-        static let transcript: CGFloat = 26
+        /// Deliberately 0. A message turn is now three stacked bubbles — thinking, actions,
+        /// output — and at any non-zero value the neighbouring ones weld into a single blob
+        /// with a glass tail between them, which defeats the whole point of separating them.
+        static let transcript: CGFloat = 0
         /// Deliberately 0: the composer field and send button must read as two controls.
         static let composer: CGFloat = 0
         static let status: CGFloat = 0

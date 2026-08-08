@@ -19,9 +19,17 @@ struct ChatMessage: Identifiable, Sendable {
     let role: Role
     var text: String
     var toolCalls: [ToolCall] = []
+    /// Reasoning text, when the stream carries any. Often empty even on turns that clearly
+    /// thought — `thinking_delta` arrives with an empty `thinking` field — so presence of
+    /// thinking is tracked by `thinkingTokens`, not by this being non-empty.
+    var thinking: String = ""
+    var thinkingTokens: Int?
     var isStreaming = false
     /// Set once the buffered `assistant` event confirms the streamed text.
     var isConfirmed = false
+
+    /// True when the turn did any reasoning worth surfacing, with or without visible text.
+    var didThink: Bool { !thinking.isEmpty || (thinkingTokens ?? 0) > 0 }
 }
 
 /// Live per-turn and per-session telemetry, straight from the CLI's own reporting.
@@ -130,6 +138,12 @@ final class SessionModel {
         isBusy = true
         stats.ttftMS = nil
         stats.thinkingTokens = nil
+        // Nothing else appends a message until the first token/tool-call/buffered assistant
+        // event arrives, which can be many seconds out — without this placeholder the
+        // transcript shows nothing at all for that whole stretch and reads as a stall, even
+        // though dispatch overhead is ~40ms. This reuses the existing "…" placeholder path
+        // in GlassMessageRow, just triggers it immediately instead of on first content.
+        messages.append(ChatMessage(role: .assistant, text: "", isStreaming: true))
         do {
             try await bridge.send(trimmed)
         } catch {
@@ -178,14 +192,29 @@ final class SessionModel {
 
         case .thinkingTokens(let estimated, _):
             stats.thinkingTokens = estimated
+            // Also stamp the in-flight message: `system/thinking_tokens` and `thinking_delta`
+            // are independent signals and either can arrive first, so relying on only one
+            // makes the thinking bubble show up inconsistently.
+            appendThinking("", tokens: estimated)
 
         case .streamEvent(let s):
+            if let thinking = s.thinkingDelta ?? (s.thinkingEstimatedTokens != nil ? "" : nil) {
+                appendThinking(thinking, tokens: s.thinkingEstimatedTokens)
+            }
             guard let delta = s.textDelta else { break }
             appendStreamingText(delta)
 
         case .assistant(let m):
             // Buffered message — arrives BEFORE content_block_stop. Treat as authoritative
             // for text, and pick up any tool calls.
+            // Thinking first: the text branch below marks the message confirmed, after which
+            // this no longer matches.
+            let thought = m.thinking
+            if !thought.isEmpty, var last = messages.last,
+               last.role == .assistant, !last.isConfirmed {
+                last.thinking = thought
+                messages[messages.count - 1] = last
+            }
             let text = m.text
             if !text.isEmpty {
                 if var last = messages.last, last.role == .assistant, !last.isConfirmed {
@@ -238,9 +267,35 @@ final class SessionModel {
                 last.isStreaming = false
                 messages[messages.count - 1] = last
             }
+            // Drop the seeded placeholder if the turn ended without producing anything —
+            // otherwise it lingers as an empty bubble.
+            if let last = messages.last, last.role == .assistant, last.text.isEmpty,
+               last.toolCalls.isEmpty, !last.didThink {
+                messages.removeLast()
+            }
 
         default:
             break
+        }
+    }
+
+    /// Thinking lands on the in-flight assistant message so it renders beside Iris's name.
+    ///
+    /// A turn can think more than once — reason, call a tool, reason again — and by the
+    /// second round the seeded placeholder has already been confirmed by the first reply.
+    /// So when there's no unconfirmed message to attach to, start one; otherwise the later
+    /// rounds of thinking have nowhere to render and only reach the status bar.
+    private func appendThinking(_ delta: String, tokens: Int?) {
+        if var last = messages.last, last.role == .assistant, !last.isConfirmed {
+            last.thinking += delta
+            if let tokens { last.thinkingTokens = tokens }
+            last.isStreaming = true
+            messages[messages.count - 1] = last
+        } else {
+            var fresh = ChatMessage(role: .assistant, text: "", isStreaming: true)
+            fresh.thinking = delta
+            fresh.thinkingTokens = tokens
+            messages.append(fresh)
         }
     }
 

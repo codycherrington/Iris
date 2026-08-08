@@ -91,6 +91,21 @@ public struct StreamEvent: Sendable {
     public let eventType: String
     /// Populated only for `content_block_delta` with a `text_delta`.
     public let textDelta: String?
+    /// Populated only for `content_block_delta` with a `thinking_delta`. Note the captured
+    /// fixtures carry `thinking_delta` events whose text is empty — the token estimate is
+    /// still meaningful, so a consumer must handle "thinking happened, no text" as a real
+    /// state rather than assuming text is always present.
+    public let thinkingDelta: String?
+    /// `estimated_tokens` off a `thinking_delta`, when present.
+    public let thinkingEstimatedTokens: Int?
+
+    public init(eventType: String, textDelta: String?,
+                thinkingDelta: String? = nil, thinkingEstimatedTokens: Int? = nil) {
+        self.eventType = eventType
+        self.textDelta = textDelta
+        self.thinkingDelta = thinkingDelta
+        self.thinkingEstimatedTokens = thinkingEstimatedTokens
+    }
 }
 
 public struct Message: Sendable {
@@ -104,6 +119,10 @@ public struct Message: Sendable {
 
     public var text: String {
         content.compactMap { if case .text(let t) = $0 { return t } else { return nil } }
+            .joined()
+    }
+    public var thinking: String {
+        content.compactMap { if case .thinking(let t) = $0 { return t } else { return nil } }
             .joined()
     }
     public var toolUses: [(id: String, name: String, input: [String: JSONValue])] {
@@ -259,10 +278,16 @@ public enum AgentEventDecoder {
         case ("stream_event", _):
             let inner = obj["event"] as? [String: Any] ?? [:]
             let delta = inner["delta"] as? [String: Any]
-            let text = (delta?["type"] as? String) == "text_delta"
-                ? delta?["text"] as? String : nil
+            let deltaType = delta?["type"] as? String
+            let text = deltaType == "text_delta" ? delta?["text"] as? String : nil
+            let thinking = deltaType == "thinking_delta" ? delta?["thinking"] as? String : nil
+            let thinkingTokens = deltaType == "thinking_delta"
+                ? delta?["estimated_tokens"] as? Int : nil
             return .streamEvent(StreamEvent(
-                eventType: inner["type"] as? String ?? "?", textDelta: text))
+                eventType: inner["type"] as? String ?? "?",
+                textDelta: text,
+                thinkingDelta: thinking,
+                thinkingEstimatedTokens: thinkingTokens))
 
         case ("assistant", _), ("user", _):
             let msg = obj["message"] as? [String: Any] ?? [:]
