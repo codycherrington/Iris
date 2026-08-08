@@ -16,7 +16,7 @@ APP     := $(HOME)/Library/Developer/Iris/Iris.app
 # Minimal bundle metadata. Iris is built from SwiftPM rather than an .xcodeproj, so the
 # bundle is assembled here instead — same command-line workflow, no fragile project file.
 define INFO_PLIST
-<?xml version="1.0" encoding="UTF-8"?>\n<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">\n<plist version="1.0"><dict>\n<key>CFBundleName</key><string>Iris</string>\n<key>CFBundleDisplayName</key><string>Iris</string>\n<key>CFBundleExecutable</key><string>Iris</string>\n<key>CFBundleIdentifier</key><string>com.codycherrington.iris</string>\n<key>CFBundlePackageType</key><string>APPL</string>\n<key>CFBundleShortVersionString</key><string>0.1.0</string>\n<key>CFBundleVersion</key><string>1</string>\n<key>LSMinimumSystemVersion</key><string>26.0</string>\n<key>NSHighResolutionCapable</key><true/>\n<key>NSSupportsAutomaticTermination</key><true/>\n</dict></plist>
+<?xml version="1.0" encoding="UTF-8"?>\n<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">\n<plist version="1.0"><dict>\n<key>CFBundleName</key><string>Iris</string>\n<key>CFBundleDisplayName</key><string>Iris</string>\n<key>CFBundleExecutable</key><string>Iris</string>\n<key>CFBundleIdentifier</key><string>com.codycherrington.iris</string>\n<key>CFBundlePackageType</key><string>APPL</string>\n<key>CFBundleShortVersionString</key><string>0.0.1</string>\n<key>CFBundleVersion</key><string>1</string>\n<key>LSMinimumSystemVersion</key><string>26.0</string>\n<key>NSHighResolutionCapable</key><true/>\n<key>NSSupportsAutomaticTermination</key><true/>\n</dict></plist>
 endef
 export INFO_PLIST
 
