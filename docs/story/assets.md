@@ -11,11 +11,23 @@ moment is gone once it happens uncaptured.
 
 ## Expiring — capture on first occurrence, gone otherwise
 - [ ] **First streamed token rendering in the SwiftUI UI** (Phase 2)
-- [ ] **First Liquid Glass frame** — first time it looks like the pitch (Phase 3)
+- [~] **First Liquid Glass frame** — first time it looks like the pitch (Phase 3). Likely
+  already happened uncaptured: `GlassContentView` was already the app's boot target as of
+  2026-08-07, before this asset list flagged it. Ask Cody if he has any screenshot from that
+  first Phase 3 build, or accept that this one is gone and let the 2026-08-08 dark-theme
+  reveal (below) stand in for "first time it looked like the pitch."
 - [ ] **First glass morph** — sidebar merging into composer (Phase 3)
+- [x] **Dark-theme reveal** — the near-black/neon-cyan/ice-white palette (ADR-006,
+  2026-08-08) shown live for the first time: a message-bubble exchange with the cyan/teal
+  `AuroraBackdrop` glow visible behind the bubbles. Cody has the screenshot (reaction:
+  "BEAUTIFUL") but it has not been pulled into this repo/asset library yet — worth retrieving
+  from that conversation before it's lost track of. This is a strong portfolio/video candidate:
+  it's the moment the aesthetic direction actually clicked.
 - [ ] **First subagent tree animating on a real fan-out** (Phase 5)
 - [ ] **First diff-approval accepted** — deny → review → approve → write lands (Phase 5)
-- [ ] First side-by-side of Iris vs terminal on the same task (Phase 2 gate)
+- [ ] First side-by-side of Iris vs terminal on the same task (Phase 2 gate) — still outstanding
+  as of 2026-08-08; this is also the unmet Phase 2 perf-gate task
+  (`ZnjemQrp6PwfQto_R1DKN`), so capturing it and closing the gate are the same piece of work.
 
 ## Screen recordings wanted
 - [ ] Spike harness running, NDJSON scrolling past
