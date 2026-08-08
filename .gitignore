@@ -1,0 +1,34 @@
+# Swift / SwiftPM
+.build/
+.swiftpm/
+Package.resolved.bak
+*.o
+*.swiftmodule
+
+# Xcode
+DerivedData/
+build/
+*.xcuserstate
+*.xcuserdatad
+xcuserdata/
+*.moved-aside
+*.hmap
+*.ipa
+*.dSYM.zip
+*.dSYM
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+Icon?
+
+# Iris runtime state — never commit captured sessions or local settings
+*.nosync/
+sessions.nosync/
+.env
+
+# Secrets — belt and braces. Iris uses subscription auth and should never need these.
+*.pem
+*.p12
+ANTHROPIC_API_KEY
