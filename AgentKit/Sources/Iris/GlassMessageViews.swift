@@ -52,13 +52,13 @@ struct GlassMessageRow: View {
                 // Nothing streamed yet — hold the shape so the glass doesn't pop in.
                 Text("…").font(Tok.TypeScale.body).foregroundStyle(.tertiary)
             } else {
+                // No maxWidth here: forcing .infinity stretched the bubble across the whole
+                // 620pt track, which made a right-aligned bubble still *look* left-aligned
+                // because its text sat at the far edge. Let it hug its content instead.
                 MarkdownText(raw: message.text)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .multilineTextAlignment(.leading)
             }
         }
-        // Size the bubble to its content rather than the 620pt track, so a short message
-        // stays a short bubble.
-        .fixedSize(horizontal: false, vertical: true)
         .padding(.horizontal, Tok.Space.base)
         .padding(.vertical, Tok.Space.snug + 1)
         .glassEffect(

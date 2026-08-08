@@ -177,13 +177,13 @@ struct SendButton: View {
             // A fixed square frame with the glyph centred in it — the icon's own optical
             // bounds differ between arrow.up and stop.fill, so without this the arrow sits
             // low and off-centre inside the circle.
+            // 42pt matches the text field's height (20 content + 11 padding top and bottom),
+            // so the pair reads as one row rather than a small dot beside a tall pill.
+            // Sizing it properly removes the need for the per-glyph nudge this had before.
             Image(systemName: isBusy ? "stop.fill" : "arrow.up")
-                .font(.system(size: 13, weight: .bold))
+                .font(.system(size: 15, weight: .semibold))
                 .foregroundStyle(.white)
-                // arrow.up's glyph box carries descender space it never uses, so it renders
-                // visually low in a centred frame. stop.fill is symmetric and needs none.
-                .offset(y: isBusy ? 0 : -1)
-                .frame(width: 34, height: 34)
+                .frame(width: 42, height: 42)
         }
         .buttonStyle(.plain)
         .contentShape(.circle)
@@ -267,6 +267,9 @@ struct GlassStatusBar: View {
                         Text(stats.model).foregroundStyle(.secondary)
                     }
                 }
+                // Without this the model id wraps to two lines inside the chip.
+                .lineLimit(1)
+                .fixedSize()
                 .padding(.horizontal, Tok.Space.snug)
                 .padding(.vertical, 5)
                 .glassEffect(Tok.Surface.panel, in: .capsule)
