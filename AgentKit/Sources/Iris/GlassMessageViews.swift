@@ -11,10 +11,12 @@ struct GlassMessageRow: View {
     private var accent: Color { isUser ? Tok.Palette.user : Tok.Palette.agent }
 
     var body: some View {
+        // The row must span the full transcript width or the Spacer has nothing to push
+        // against and every bubble collapses toward the leading edge.
         HStack(alignment: .top, spacing: 0) {
             if isUser { Spacer(minLength: Tok.Space.wide) }
 
-            VStack(alignment: .leading, spacing: Tok.Space.snug) {
+            VStack(alignment: isUser ? .trailing : .leading, spacing: Tok.Space.snug) {
                 if !message.text.isEmpty || message.isStreaming {
                     contentBody
                 }
@@ -22,24 +24,27 @@ struct GlassMessageRow: View {
                     ToolChipCluster(calls: message.toolCalls, namespace: namespace)
                 }
             }
-            .frame(maxWidth: 620, alignment: .leading)
+            .frame(maxWidth: 620, alignment: isUser ? .trailing : .leading)
 
             if !isUser { Spacer(minLength: Tok.Space.wide) }
         }
+        .frame(maxWidth: .infinity)
         .padding(.horizontal, Tok.Space.loose)
         .padding(.vertical, Tok.Space.tight)
         .transition(.glassAppear(reduceMotion: reduceMotion))
     }
 
     private var contentBody: some View {
-        VStack(alignment: .leading, spacing: Tok.Space.tight) {
+        VStack(alignment: isUser ? .trailing : .leading, spacing: Tok.Space.tight) {
             HStack(spacing: Tok.Space.tight) {
-                Circle().fill(accent).frame(width: 5, height: 5)
-                Text(isUser ? "You" : "Iris")
-                    .font(Tok.TypeScale.label)
-                    .foregroundStyle(accent)
-                if message.isStreaming {
-                    StreamingPulse()
+                if isUser {
+                    if message.isStreaming { StreamingPulse() }
+                    Text("You").font(Tok.TypeScale.label).foregroundStyle(accent)
+                    Circle().fill(accent).frame(width: 5, height: 5)
+                } else {
+                    Circle().fill(accent).frame(width: 5, height: 5)
+                    Text("Iris").font(Tok.TypeScale.label).foregroundStyle(accent)
+                    if message.isStreaming { StreamingPulse() }
                 }
             }
 
@@ -48,8 +53,12 @@ struct GlassMessageRow: View {
                 Text("…").font(Tok.TypeScale.body).foregroundStyle(.tertiary)
             } else {
                 MarkdownText(raw: message.text)
+                    .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
+        // Size the bubble to its content rather than the 620pt track, so a short message
+        // stays a short bubble.
+        .fixedSize(horizontal: false, vertical: true)
         .padding(.horizontal, Tok.Space.base)
         .padding(.vertical, Tok.Space.snug + 1)
         .glassEffect(

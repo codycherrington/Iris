@@ -58,9 +58,15 @@ struct GlassContentView: View {
                         }
                         Color.clear.frame(height: 1).id("bottom")
                     }
+                    // Both the stack AND the container size to their content by default, so
+                    // without these the rows never span the window and every bubble hugs the
+                    // leading edge no matter what the row's own Spacer does.
+                    .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.vertical, Tok.Space.base)
                 }
+                .frame(maxWidth: .infinity)
             }
+            .frame(maxWidth: .infinity)
             .scrollContentBackground(.hidden)
             .onChange(of: model.messages.last?.text) { _, _ in
                 withAnimation(Tok.Motion.resolved(.easeOut(duration: 0.12),
@@ -78,20 +84,27 @@ struct GlassContentView: View {
 
     private var composer: some View {
         GlassEffectContainer(spacing: Tok.Fusion.composer) {
-            HStack(alignment: .bottom, spacing: Tok.Space.snug) {
+            // .center, not .bottom: the text editor is taller than the button, and bottom
+            // alignment drags the button below the text baseline.
+            HStack(alignment: .center, spacing: Tok.Space.base) {
                 TextEditor(text: $draft)
                     .font(Tok.TypeScale.body)
                     .scrollContentBackground(.hidden)
-                    .frame(minHeight: 26, maxHeight: 132)
+                    // Kill TextEditor's built-in insets so the placeholder overlay and the
+                    // real caret share one origin — otherwise they sit a few points apart.
+                    .textEditorStyle(.plain)
+                    .contentMargins(.all, 0, for: .scrollContent)
+                    .frame(minHeight: 20, maxHeight: 132)
                     .fixedSize(horizontal: false, vertical: true)
                     .focused($composerFocused)
-                    .overlay(alignment: .topLeading) {
+                    .overlay(alignment: .leading) {
                         if draft.isEmpty {
                             Text(model.isBusy ? "Esc to interrupt…" : "Message Iris…")
                                 .font(Tok.TypeScale.body)
                                 .foregroundStyle(.tertiary)
-                                .padding(.leading, 5)
-                                .padding(.top, 4)
+                                // Clear the caret. Both sit at the text origin, so without
+                                // this the blinking cursor lands on top of the first glyph.
+                                .padding(.leading, 7)
                                 .allowsHitTesting(false)
                         }
                     }
@@ -105,14 +118,10 @@ struct GlassContentView: View {
                         Task { await model.interrupt() }
                         return .handled
                     }
-                    .padding(.horizontal, Tok.Space.base)
-                    .padding(.vertical, Tok.Space.snug)
-                    .glassEffect(Tok.Surface.interactive,
-                                 in: .rect(cornerRadius: Tok.Radius.capsule))
+                    .padding(.horizontal, Tok.Space.base + 2)
+                    .padding(.vertical, 11)
+                    .glassEffect(Tok.Surface.interactive, in: .capsule)
                     .glassEffectID(GlassID.composer, in: glass)
-                    // Shared union id: the field and the send button read as one piece of
-                    // liquid and pull apart as the button grows on send.
-                    .glassEffectUnion(id: GlassID.composerCluster, namespace: glass)
 
                 SendButton(isBusy: model.isBusy,
                            hasText: !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
@@ -165,23 +174,22 @@ struct SendButton: View {
 
     var body: some View {
         Button(action: action) {
+            // A fixed square frame with the glyph centred in it — the icon's own optical
+            // bounds differ between arrow.up and stop.fill, so without this the arrow sits
+            // low and off-centre inside the circle.
             Image(systemName: isBusy ? "stop.fill" : "arrow.up")
-                .font(.system(size: 12, weight: .bold))
+                .font(.system(size: 13, weight: .bold))
                 .foregroundStyle(.white)
-                .frame(width: 15, height: 15)
-                .padding(Tok.Space.snug)
+                // arrow.up's glyph box carries descender space it never uses, so it renders
+                // visually low in a centred frame. stop.fill is symmetric and needs none.
+                .offset(y: isBusy ? 0 : -1)
+                .frame(width: 34, height: 34)
         }
         .buttonStyle(.plain)
-        .glassEffect(Tok.Surface.accentInteractive(tint.opacity(0.75)), in: .circle)
+        .contentShape(.circle)
+        .glassEffect(Tok.Surface.accentInteractive(tint.opacity(0.8)), in: .circle)
         .glassEffectID(GlassID.sendButton, in: namespace)
-        // Union only while idle: the button sits fused to the composer, then breaks away as
-        // its own shape the moment there's something to send. That separation IS the
-        // affordance — it's what makes the control feel liquid rather than decorated.
-        .glassEffectUnion(
-            id: (hasText || isBusy) ? nil : GlassID.composerCluster,
-            namespace: namespace
-        )
-        .scaleEffect(hasText || isBusy ? 1.0 : 0.88)
+        .scaleEffect(hasText || isBusy ? 1.0 : 0.9)
         .animation(Tok.Motion.resolved(Tok.Motion.touch, reduceMotion: reduceMotion),
                    value: hasText)
         .help(isBusy ? "Interrupt (Esc)" : "Send (⌘↵)")

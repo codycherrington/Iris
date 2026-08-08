@@ -26,13 +26,18 @@ enum Tok {
         static let capsule: CGFloat = 22
     }
 
-    /// Gap below which sibling glass shapes begin to fuse inside a GlassEffectContainer.
+    /// Distance within which sibling glass shapes fuse inside a GlassEffectContainer.
     /// This is the knob that controls how "liquid" the UI reads — raise it and neighbours
     /// merge sooner.
+    ///
+    /// Careful: this applies to *every* sibling pair in the container, not just ones sharing
+    /// a union id. A value larger than the gap between two controls will silently blend them
+    /// into one blob — which is what made the send button look welded to the composer.
     enum Fusion {
         static let transcript: CGFloat = 26
-        static let composer: CGFloat = 34
-        static let status: CGFloat = 18
+        /// Deliberately 0: the composer field and send button must read as two controls.
+        static let composer: CGFloat = 0
+        static let status: CGFloat = 0
     }
 
     // MARK: Glass
