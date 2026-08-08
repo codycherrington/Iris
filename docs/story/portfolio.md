@@ -69,6 +69,34 @@ startup paid **once**, not per turn. Same number, opposite conclusion, depending
 you break it down. Good place to make the point that a measurement you don't decompose can
 argue for the wrong architecture.
 
+## The gate that passed, and the bug it caught anyway
+
+*(2026-08-08. This is the second-strongest section in the piece after the spike, and it's the
+one that argues for the whole methodology.)*
+
+Phase 2's exit condition was "use it for a real task and compare against the terminal." The
+morning's audit found the gate had been quietly skipped while more visually exciting Phase 3
+work landed on top of it — worth admitting on the page, because "we skipped our own
+non-negotiable gate" is the setup for what follows.
+
+The gate ran and passed comfortably. The entire Liquid Glass UI — glass containers, animated
+aurora backdrop, per-message morph IDs — cost **43 ms** of dispatch overhead against 7–20 ms
+headless and a 100 ms threshold.
+
+And the first reaction to using it was *"it felt like a stall for a minute."*
+
+Both true. `SessionModel.send()` set `isBusy` and then appended nothing to the transcript until
+the first content event, so an 11.5-second time-to-first-token showed an **empty screen**. Not
+slow — silent.
+
+> A pure benchmark would have printed 43 ms, gone green, and shipped a UI that reads as hung.
+
+That's the thesis of the section: *fast* and *feels fast* are two different measurements, and
+only one of them was in the plan. The fix was one line and a long comment. The lesson is that
+a perf gate needs a human half, or it certifies the wrong thing. Pair with the Phase 0 material
+above — that one was about decomposing a number before trusting it; this one is about a number
+that was correct and still misleading.
+
 ## Reverse-engineering an undocumented protocol
 
 `rate_limit_event`, `system/thinking_tokens`, `system/permission_denied` — none in public
@@ -76,21 +104,97 @@ docs, all useful. On a subscription, a quota gauge beats a cost meter; live thin
 deltas beat a spinner. Ties to the testing strategy: captured fixtures as both regression
 suite and protocol documentation.
 
+**The best finding is a negative one.** Chasing "show the user *something* during those 11
+seconds" led into this: the CLI emits thinking events, reports a token estimate, and hands over
+a 1164-character cryptographic signature over the reasoning — but the reasoning text itself is
+always `""`. Verified twice, from a live capture and from day-old fixtures. Show the payload:
+
+```json
+{"type":"thinking_delta","thinking":"","estimated_tokens":50}
+{"type":"thinking","thinking":"","signature":"CAIS4QYKhwEIEBgCKkDLVoHw5BVSyLw+24z/…"}
+```
+
+The signature sitting next to the empty string is what makes it obviously deliberate rather
+than a decoding bug. **A planned feature — a collapsible "view reasoning" panel — was deleted
+because the protocol proved it impossible.** Good material: most build stories add features on
+discovery, this one removed one, and the app got simpler and better for it.
+
+## Designing against what the data will actually support
+
+The thinking UI took three passes, and the sequence is the point:
+
+1. Seed a placeholder bubble so the screen isn't empty. Fixes the dead air, says nothing.
+2. Three stacked collapsible bubbles — thinking / actions / output. Looked right on paper.
+3. Delete the thinking bubble entirely. It was a container for text that will never arrive.
+   Reasoning became one line in the assistant's header: `● Iris  thinking  50 tokens`,
+   past-tensed to *thought* once the answer starts.
+
+Iteration 2 also produced the Liquid Glass correction worth its own beat: `GlassEffectContainer`
+fuses **every** sibling pair within its `spacing`, which is not a gap value. At 26 the tool chip
+welded itself to the answer bubble with a visible glass tail. And `glassEffectUnion` on tool
+chips — pitched in the design as the payoff of the whole glass vocabulary — made a run of three
+actions unreadable as three actions. **Fuse things that are genuinely one control; never fuse
+things the user has to count.** A partial reversal of my own design doc, which is the honest
+kind of lesson.
+
 ## Liquid Glass
 
 What `glassEffectID` + `glassEffectUnion` inside a `GlassEffectContainer` actually buy —
 morphing, not just blur. Include the API-hunting anecdote (wrong framework, wrong arch, two
 empty greps that nearly produced a wrong conclusion) as a lesson about negative evidence.
 
+## The persona that edits itself
+
+*(2026-08-08, Phase 4. The single most shareable moment in the project so far — lead with it if
+the piece needs a second hook.)*
+
+The persona wizard had one requirement from the plan: the persona must be **actual config, not
+a stored string the app ignores**. The obvious implementation is `UserDefaults` — one line,
+platform-standard, and completely opaque. Instead it writes pretty-printed JSON to
+`~/Library/Application Support/Iris/persona.json`, on the theory that a file you can open,
+read and diff is config, while a hashed binary plist is a setting.
+
+Then the consequence nobody designed:
+
+> Because the persona is a real file at a real path, it's within reach of the agent's own file
+> tools. I asked Iris to change its own persona, mid-conversation, and it did.
+
+The app doesn't own the persona and hand it to the agent. It's a shared document with two
+authors, one of whom is the subject. "Make yourself less formal" becomes something you can just
+say.
+
+It also broke something immediately, which is the part that makes it a real engineering story
+rather than a party trick: the store cached the file at launch, so the next wizard save would
+silently clobber whatever the agent had written. **Any cached read of a file the agent can
+write is a lost-update bug.** And a running session still can't pick up the change — the system
+prompt is a process launch argument, so applying a persona restarts the session, and the button
+says so instead of pretending.
+
+Recorded as ADR-007. The plan's other Phase 4 instruction — write a real `CLAUDE.md` into the
+target project — was deliberately *not* implemented: a first-run wizard silently overwriting a
+file someone cares about is how you lose trust permanently. Deviating from your own plan, in
+writing, with the reason, is a good note to land on.
+
 ## Results
 
-TODO — fill from Phase 2's head-to-head against the terminal, and whether Iris became the
-daily driver. **Be honest if it didn't.**
+Phase 2's gate: **PASS** — 43 ms dispatch with the full glass UI attached, against 7–20 ms
+headless and a 100 ms threshold, with the terminal running the same prompt for comparison.
+Full numbers in `docs/runs/2026-08-08-phase2-perf-gate.md`. Phases 1–3 closed 2026-08-08.
+
+TODO — still open: whether Iris became the daily driver. **Be honest if it didn't.** Also
+worth re-running the head-to-head once Phase 4's sidebar tools land, since those spawn extra
+short-lived processes and are the likeliest thing to regress dispatch.
 
 ## Lessons
 
 - Interrogate which constraint is actually load-bearing before designing around it.
 - Decompose a measurement before letting it pick an architecture.
+- **A number can be correct and still certify the wrong thing.** 43 ms of dispatch and "it felt
+  like it stalled" were both true. Build the perceptual half of the gate.
+- **Design against the data you actually get, not the data you assumed.** A feature was deleted
+  because the protocol proved it impossible — and the app got better.
+- **Fuse things that are one control; never fuse things the user has to count.**
+- **Make config a file, and it acquires a second author.** Powerful, and a lost-update bug.
 - Spike the scariest assumption first; a half-day answer beats a three-week rewrite.
 - An empty grep is not evidence of absence.
 - Write the kill criterion down *before* you're emotionally invested in the thing.

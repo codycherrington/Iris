@@ -37,14 +37,78 @@ Three undocumented events. On a subscription a quota gauge beats a cost meter. S
 `rate_limit_event` and the gauge it drives; `thinking_tokens` and the progress indicator.
 Fixtures as both tests and documentation.
 
-## Glass (12:00–15:00)
+## Fast, and it still felt broken (12:00–14:30)
+**The best non-visual beat in the video. Do not cut this for time.**
+
+Set it up honestly: the gate I said was non-negotiable, I skipped. Phase 3 glass work went in
+on top of an ungated Phase 2. Show the audit finding it.
+
+Then run the gate. Split screen, terminal and Iris, same prompt, timer visible. Land the
+number on screen: **dispatch 43 ms**, against 7–20 ms headless and a 100 ms threshold. The
+whole glass UI cost tens of milliseconds. Beat.
+
+Then cut to me using it and saying *"it felt like a stall for a minute."*
+
+Reveal the cause on screen — `send()` sets `isBusy` and appends nothing, so 11.5 seconds of
+TTFT showed a blank transcript. Hold on the empty screen for the real duration if the edit can
+stand it; the discomfort *is* the point.
+
+Line to land: **"A pure benchmark would have passed and shipped a UI that reads as hung."**
+
+## The feature the protocol deleted (14:30–16:30)
+Chasing "show something during those 11 seconds." Show the live capture scrolling. Then the
+payload, big on screen:
+
+```json
+{"type":"thinking_delta","thinking":"","estimated_tokens":50}
+{"type":"thinking","thinking":"","signature":"CAIS4QYKhwEIEBgCKkDL…"}
+```
+
+It tells you reasoning happened. It hands you a 1164-character signature over it. It never
+gives you the text. Verified twice — live capture and day-old fixtures.
+
+So the collapsible "view reasoning" panel I'd designed was a box that opens on nothing. Show
+the three iterations as a quick montage — placeholder bubble → three stacked bubbles →
+delete the thinking bubble entirely, reasoning becomes one line in the header:
+`● Iris  thinking  50 tokens`, past-tensing to *thought*. **Most build videos add a feature on
+discovery. This one removed one and got better.**
+
+## Glass (16:30–19:30)
 The API-hunting anecdote — wrong framework, wrong arch, two empty greps. Then what
 `glassEffectID` + `glassEffectUnion` actually do. Build the morph on screen. This is the
 visual payoff; give it room and shoot it well.
 
-## The verdict (15:00–17:00)
-Head-to-head against the terminal. Did it become the daily driver? **Answer honestly.**
-TODO — cannot be written until Phase 2 ships.
+Then the correction, which is more interesting than the demo: `GlassEffectContainer(spacing:)`
+fuses **every** sibling pair within that distance. It is not a gap. Show the bug — the tool
+chip welded to the answer bubble with a glass tail between them — and the fix, `26 → 0`. Show
+three tool chips fused into one unreadable blob by `glassEffectUnion`, the thing I'd pitched
+as the payoff of the entire vocabulary. Rule on screen: **fuse things that are one control,
+never things you have to count.**
+
+Good place for the cursor-following aurora too: the backdrop leans toward the pointer, 34 pt
+max, long spring. Plus the two gotchas — `onContinuousHover` never fires because the backdrop
+is under everything, and `window.acceptsMouseMovedEvents` is off by default so the fix does
+nothing until you find it.
+
+## The persona that edits itself (19:30–21:30)
+**Strongest standalone clip in the project — also cut this as a short.**
+
+The wizard, three steps, ending on the generated system prompt shown verbatim. Explain why
+that screen exists: the persona has to be *actual config*, and showing the text is what proves
+it. Then the choice — a readable JSON file in Application Support, not `UserDefaults`.
+
+Then do it live on camera: **ask Iris to change its own persona.** Split screen, the agent's
+edit on one side and `persona.json` changing on the other. Restart, ask it who it is, get the
+new answer back.
+
+The idea underneath, said plainly: the app doesn't own the persona and hand it to the agent —
+it's a shared document with two authors, one of whom is the subject. Then the honest cost: it
+broke the store's cached copy, and a running session still needs a restart because the system
+prompt is a launch argument.
+
+## The verdict (21:30–23:30)
+Head-to-head against the terminal — the numbers are in now (43 ms, gate passed 2026-08-08).
+Did it become the daily driver? **Answer honestly.** TODO — still open.
 
 ## Outro
 Lessons, repo link. Note it's an independent project, not an Anthropic product.
@@ -52,3 +116,6 @@ Lessons, repo link. Note it's an independent project, not an Anthropic product.
 ## Notes
 - Highest-value B-roll is the glass morph and the subagent tree — capture generously.
 - Resist making it a tutorial. The story is the reversals, not the API calls.
+- Runtime is drifting past 20 minutes. If it has to be cut, cut *Glass* down and keep
+  **"fast but felt broken"** and **"the persona that edits itself"** — those two are the
+  beats nobody else has.

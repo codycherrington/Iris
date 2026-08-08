@@ -53,6 +53,36 @@ That's the vocabulary for the sidebar-into-composer merge and tool cards coalesc
 result — the effects that make Iris look unlike a normal chat window. Treat these as the
 primary tool, not decoration layered on afterwards.
 
+## Fusion is punctuation, not a layout mode (learned 2026-08-08)
+
+The paragraph above is still true and was still, in practice, over-applied. Two corrections
+from building the real transcript, both partially reversing how Phase 3 used these APIs:
+
+**`GlassEffectContainer(spacing:)` fuses *every* sibling pair within that distance — it is not
+a gap or a padding value.** `Tok.Fusion.transcript` was `26`, chosen as if it were spacing. The
+moment a message turn became more than one glass shape (tool chips above, answer bubble below)
+those two welded into a single blob with a visible glass tail strung between them. It is now
+**`0`**, with the reason recorded in the token itself. If two glass shapes must read as
+separate, the container spacing between them has to be `0` — there is no "close but distinct."
+
+**`glassEffectUnion` destroys countability.** `ToolChip` shared a `"tools-pending"` union id so
+unresolved calls would fuse and split apart as they resolved. It looked excellent and made a
+run of tool calls unreadable as distinct steps — you could not tell three actions from one.
+The union was removed; each chip is now its own shape.
+
+The rule that came out of it: **fuse things that are genuinely one control, never things the
+user needs to count or read separately.** Fusion survives in Iris exactly where it earns its
+place — the composer field and its send button share `GlassID.composerCluster` and read as one
+piece of liquid, because they *are* one control. Everything in the transcript is information,
+and information wants edges.
+
+A related non-API lesson from the same session: a separate animated element beside static
+content reads as a spinner bolted onto the glass. A sweeping-capsule `StreamingPulse` was
+replaced by dimming the existing label to 35% on a 1.2 s ease (`Breathing` in
+`GlassMessageViews.swift`). When the glass is already the visual interest, adding a second
+moving object subtracts. Group co-animated elements under one modifier, too — driven
+separately, a label and its dot drift out of phase.
+
 ## Practical notes
 
 - Set the deployment target to macOS 26 for the app; `AgentKit` itself is UI-free and targets

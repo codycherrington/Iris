@@ -1,6 +1,7 @@
 # The `stream-json` wire protocol (observed)
 
 Reverse-engineered from real captured output, `claude` **v2.1.226**, 2026-08-07.
+Re-verified against a fresh live capture 2026-08-08 (thinking section).
 Raw captures: `AgentKit/Tests/AgentKitTests/Fixtures/*.ndjson`.
 
 Several of these event types appear in **no public documentation**. This file is currently the
@@ -36,10 +37,12 @@ in-flight turn, runs `SessionEnd` hooks, and exits 143.
 rate_limit_event          (once, at session start, BEFORE system/init)
 system/init               ← repeats EVERY turn, not once per process
 system/status
-system/thinking_tokens    (0..n, only when thinking)
+system/thinking_tokens    (0..n, only when thinking — interleaves with the deltas below)
 stream_event: message_start
 stream_event: content_block_start
-stream_event: content_block_delta   (xN — text_delta carries tokens)
+stream_event: content_block_delta   (xN — text_delta carries tokens;
+                                     thinking_delta carries an estimate and NO text;
+                                     signature_delta closes a thinking block)
 assistant                 ← full buffered message, arrives BEFORE content_block_stop
 stream_event: content_block_stop
 stream_event: message_delta
@@ -75,6 +78,102 @@ Key fields: `apiKeySource`, `model`, `cwd`, `permissionMode`, `claude_code_versi
 this. Observed `mcp_servers` statuses include `connected` and `needs-auth`, so the UI can
 prompt for re-auth.
 
+### Thinking: the text is never emitted (verified 2026-08-08)
+
+**The single most consequential protocol finding so far, because it removes a feature rather
+than adding one.** The CLI tells you that reasoning happened, how much of it there was, and
+even hands you a cryptographic signature over it — but it never gives you the reasoning text.
+Every `thinking` string on the wire is empty.
+
+Verified two independent ways: a fresh live capture on 2026-08-08
+(`claude -p … --output-format stream-json --verbose --include-partial-messages` with a prompt
+chosen to force extended reasoning) and the Phase 0 fixtures captured 2026-08-07. Both agree.
+
+`AgentKit/Tests/AgentKitTests/Fixtures/skills.ndjson` carries a complete thinking block. The
+whole observed sequence, verbatim (`uuid`/`session_id` elided):
+
+```json
+{"type":"content_block_start","index":0,
+ "content_block":{"type":"thinking","thinking":"","signature":""}}
+
+{"type":"system","subtype":"thinking_tokens","estimated_tokens":50,"estimated_tokens_delta":50}
+
+{"type":"content_block_delta","index":0,
+ "delta":{"type":"thinking_delta","thinking":"","estimated_tokens":50}}
+
+{"type":"system","subtype":"thinking_tokens","estimated_tokens":150,"estimated_tokens_delta":100}
+
+{"type":"content_block_delta","index":0,
+ "delta":{"type":"thinking_delta","thinking":"","estimated_tokens":100}}
+
+{"type":"content_block_delta","index":0,
+ "delta":{"type":"thinking_delta","thinking":"","estimated_tokens":null}}
+
+{"type":"system","subtype":"thinking_tokens","estimated_tokens":219,"estimated_tokens_delta":69}
+
+{"type":"content_block_delta","index":0,
+ "delta":{"type":"signature_delta","signature":"CAIS4QYKhwEIEBgCKkDLVoHw5BVSyLw+24z/…"}}
+```
+
+Then the buffered `assistant` message, whose thinking block is *also* text-empty:
+
+```json
+{"type":"thinking","thinking":"","signature":"CAIS4QYKhwEIEBgCKkDL…"}   // signature len 1164
+```
+
+Then `content_block_stop`, and finally the turn's `message_delta`:
+
+```json
+"usage":{"output_tokens":363,"output_tokens_details":{"thinking_tokens":228}, …}
+```
+
+What that adds up to:
+
+| Field | Observed |
+|---|---|
+| `content_block_start.content_block.thinking` | `""` |
+| `content_block_start.content_block.signature` | `""` (filled in later, by `signature_delta`) |
+| `thinking_delta.thinking` | `""` — always, on every delta, in every capture |
+| `thinking_delta.estimated_tokens` | present as an *increment* (`50`, `100`), sometimes explicitly `null` |
+| `signature_delta.signature` | a real 1164-char blob — so the reasoning exists, it is just withheld |
+| buffered `assistant` thinking block `.thinking` | `""` |
+| `message_delta.usage.output_tokens_details.thinking_tokens` | `228` — the authoritative final count |
+
+**`estimated_tokens` is the only signal that reasoning happened.** The empty `thinking` field
+is not a bug in our decoder, not a capture artifact, and not specific to a model or prompt —
+the populated `signature_delta` alongside the empty text is what makes it clear this is
+deliberate redaction rather than absence.
+
+Keys observed on a `thinking_delta` are exactly `['type', 'thinking', 'estimated_tokens']`.
+
+#### Consequences for any consumer
+
+- **There is no expandable "view reasoning" affordance possible.** Any UI that offers to open
+  a thinking block will open an empty box. Iris removed a planned three-bubble
+  thinking/actions/output layout for exactly this reason and reports reasoning as a live
+  token count beside the assistant's name instead. See
+  `docs/devlog/2026-08-08-perf-gate-thinking-and-persona.md`.
+- **Treat "thinking occurred, no text" as a first-class state.** Do not gate the indicator on
+  `!thinking.isEmpty` — it will never fire. Gate it on the token estimate. `AgentKit`'s
+  `ChatMessage.didThink` is `!thinking.isEmpty || (thinkingTokens ?? 0) > 0` for this reason,
+  and the empty-text branch is the one that actually runs.
+- **`system/thinking_tokens` and `thinking_delta` are independent signals, and either can
+  arrive first.** In the fixture above the `content_block_start` leads, then the system event,
+  then the matching delta — but ordering is not guaranteed, and a consumer that listens to
+  only one of the two gets an indicator that fires inconsistently across turns. Handle both
+  and let them converge on the same counter.
+- **The two counters mean different things.** `system/thinking_tokens.estimated_tokens` is a
+  running *total* (50 → 150 → 219) with `estimated_tokens_delta` as its increment;
+  `thinking_delta.estimated_tokens` is an *increment* (50, 100) that tracks
+  `estimated_tokens_delta`. Both are estimates — the turn's real figure lands later in
+  `message_delta.usage.output_tokens_details.thinking_tokens` (219 estimated vs **228**
+  actual here). Don't mix them in one accumulator.
+- Turns with no reasoning still report the field: `output_tokens_details.thinking_tokens: 0`
+  appears in `transcript.ndjson` and `perms.ndjson`.
+
+Open question: whether `--forward-subagent-text` (documented as forwarding subagent
+"text/thinking") changes any of this for nested agents. Not yet tested.
+
 ### `system/thinking_tokens` — undocumented
 
 ```json
@@ -82,7 +181,8 @@ prompt for re-auth.
  "estimated_tokens":150,"estimated_tokens_delta":100,"uuid":"…","session_id":"…"}
 ```
 
-Streams while the model thinks. Enables a real progress indicator rather than a spinner.
+Streams while the model thinks. Enables a real progress indicator rather than a spinner —
+which, given the section above, is the *only* thinking UI available.
 
 ### `system/permission_denied` — undocumented
 
@@ -96,7 +196,9 @@ Does **not** block the stream — see `result.permission_denials` below and ADR-
 ### `stream_event`
 
 Wraps standard Anthropic streaming events under `.event`. Token text is at
-`.event.delta.text` when `.event.delta.type == "text_delta"`.
+`.event.delta.text` when `.event.delta.type == "text_delta"`. Observed `.event.delta.type`
+values: `text_delta`, `thinking_delta`, `signature_delta`. See the thinking section above —
+`thinking_delta.thinking` is always `""`.
 
 ### `assistant` / `user`
 
@@ -138,6 +240,14 @@ The **full intended tool input** — the basis for the diff-approval UI (ADR-004
 
 Process startup ≈ 3.5 s, paid **once per session**. Naive wall-clock for turn 1 was 4.98 s;
 turns 2–3 were 0.77 s and 1.55 s.
+
+### Re-measured 2026-08-08 with the full Liquid Glass UI attached
+
+`time_to_request_ms` rose to **21–67 ms** (three turns), against 7–20 ms headless and a
+100 ms internal threshold. Full write-up, including the terminal head-to-head, in
+`docs/runs/2026-08-08-phase2-perf-gate.md`. `ttft_ms` on the gate turn was 11470 — a reminder
+that the client's overhead is a rounding error next to the API round-trip, and that the
+*perceived* latency problem is a UI problem, not a dispatch problem.
 
 ## Open questions
 

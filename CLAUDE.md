@@ -13,7 +13,10 @@ before implementing anything.
 - **Always build via `make`.** This repo is in iCloud Drive; the Makefile redirects SwiftPM's
   scratch path to `~/Library/Developer/Iris/agentkit-build`. A bare `swift build` inside
   `AgentKit/` recreates a heavy `.build/` in the synced tree. No symlinks for build dirs —
-  iCloud mangles them.
+  iCloud mangles them. A side effect of the redirect: **SourceKit's in-editor diagnostics go
+  stale** against newly-added files and changed module interfaces — phantom "Cannot find type
+  X in scope" errors persist while `make build` is clean. `make build` is the source of truth;
+  don't "fix" working code to satisfy the squiggles.
 - **The stream-json schema is reverse-engineered, not documented.** Several event types
   (`rate_limit_event`, `system/thinking_tokens`, `system/permission_denied`, `system/status`)
   appear nowhere in public docs. Decode permissively: unknown types go to
@@ -47,9 +50,10 @@ drifted — investigate before "fixing" the test. Recapture instructions are in 
 ## Documentation is a deliverable
 
 This project is being documented end-to-end for a portfolio writeup / YouTube video.
-**At the end of every phase or significant work session, invoke the `documentarian` agent**
-(defined in `.claude/agents/documentarian.md`) to write the devlog entry, capture any ADRs,
-and update the story drafts. Don't skip this — the docs are half the point.
+**After every push, invoke the `documentarian` agent** (defined in
+`.claude/agents/documentarian.md`) to write the devlog entry, capture any ADRs, and update
+the story drafts. Not just at phase boundaries — every push, while the reasoning behind the
+commits is still recoverable. Don't skip this — the docs are half the point.
 
 Ledger board: "Iris". Remind Cody at session end which cards are done (he moves them
 manually). Use the **ledger-tasks** skill rather than editing Ledger's CSVs by hand.

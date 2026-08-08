@@ -234,6 +234,9 @@ Only now does it get beautiful.
 - **Persona wizard** — first-launch flow; writes a real `CLAUDE.md` + `.claude/settings.json` in the
   target project, and passes `--append-system-prompt` per session. The persona must be *actual
   config*, not a stored string the app ignores.
+  *(Partially built 2026-08-08, `6c5a663`. `--append-system-prompt` and an inspectable
+  `persona.json` shipped; the `CLAUDE.md` / `.claude/settings.json` write was **deliberately
+  declined** — it would clobber real files. See ADR-007 before filing this as a gap.)*
 - **Sidebar tool system** — a `SidebarTool` protocol + registry. Each tool is a SwiftUI view plus an
   optional headless action. Rearrangeable, addable, removable. Ship: notes, prompt improver, SQL
   reviewer, bug checker. Sidebar tools run as **separate short-lived `claude -p` calls with

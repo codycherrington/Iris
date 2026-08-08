@@ -23,7 +23,7 @@ that's a bug at the top of the list.
 | 1 | `AgentKit` headless core | ✅ bridge, decoder, 24 tests |
 | 2 | Minimal chat UI — perf gate | ✅ **PASS** — see `docs/runs/2026-08-08-phase2-perf-gate.md` |
 | 3 | Liquid Glass design system | ✅ dark theme, glass transcript, composer |
-| 4 | Persona wizard, sidebars, file picker, project switcher | ⬜ |
+| 4 | Persona wizard, sidebars, file picker, project switcher | 🟡 persona wizard done (ADR-007); sidebars, file picker, switcher next |
 | 5 | Subagent tree, session library, permission UI | ⬜ |
 
 The authoritative design is **`docs/plan.md`**. Read the relevant phase before implementing.

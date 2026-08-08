@@ -212,8 +212,14 @@ final class SessionModel {
             appendThinking("", tokens: estimated)
 
         case .streamEvent(let s):
-            if let thinking = s.thinkingDelta ?? (s.thinkingEstimatedTokens != nil ? "" : nil) {
-                appendThinking(thinking, tokens: s.thinkingEstimatedTokens)
+            // Deliberately does NOT take the count from here. `thinking_delta`'s
+            // `estimated_tokens` is an *increment* (50, then 100) while
+            // `system/thinking_tokens` reports the cumulative figure (50, 150, 219), and the
+            // two interleave — assigning both to one field walked the counter backwards
+            // mid-turn. The cumulative source wins; this branch only marks that a turn is
+            // reasoning, and carries text on the chance the CLI ever starts emitting it.
+            if s.thinkingDelta != nil || s.thinkingEstimatedTokens != nil {
+                appendThinking(s.thinkingDelta ?? "", tokens: nil)
             }
             guard let delta = s.textDelta else { break }
             appendStreamingText(delta)
