@@ -174,15 +174,16 @@ struct SendButton: View {
 
     var body: some View {
         Button(action: action) {
-            // A fixed square frame with the glyph centred in it — the icon's own optical
-            // bounds differ between arrow.up and stop.fill, so without this the arrow sits
-            // low and off-centre inside the circle.
+            // A fixed square frame with the glyph centred in it.
             // 42pt matches the text field's height (20 content + 11 padding top and bottom),
             // so the pair reads as one row rather than a small dot beside a tall pill.
-            // Sizing it properly removes the need for the per-glyph nudge this had before.
+            // arrow.up's ink is still offset down-and-right of its design box even at this
+            // size — that's inherent to the glyph, not something frame sizing fixes — so it
+            // keeps a small counter-nudge. stop.fill is symmetric and needs none.
             Image(systemName: isBusy ? "stop.fill" : "arrow.up")
                 .font(.system(size: 15, weight: .semibold))
                 .foregroundStyle(.white)
+                .offset(x: isBusy ? 0 : -1, y: isBusy ? 0 : -1)
                 .frame(width: 42, height: 42)
         }
         .buttonStyle(.plain)
@@ -207,7 +208,7 @@ struct AuroraBackdrop: View {
 
     var body: some View {
         ZStack {
-            Rectangle().fill(.background)
+            Rectangle().fill(Tok.Palette.background)
 
             ForEach(Array(Tok.Palette.spectrum.enumerated()), id: \.offset) { index, color in
                 Ellipse()

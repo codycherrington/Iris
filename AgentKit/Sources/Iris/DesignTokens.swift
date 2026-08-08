@@ -56,17 +56,26 @@ enum Tok {
     // Iris = aperture + the rainbow messenger. Refraction is the theme, so the accents are a
     // narrow spectral sweep rather than arbitrary hues, and glass tints stay low-saturation —
     // Liquid Glass already saturates whatever sits behind it.
+    //
+    // Committed to a single dark look (see `preferredColorScheme(.dark)` in IrisApp) rather
+    // than following system appearance: near-black base, neon cyan for the agent/primary
+    // accent, ice white for the user/ambient accent. `background` is deliberately not pure
+    // #000 — flat black gives Liquid Glass nothing to refract, so it carries a hair of blue.
 
     enum Palette {
-        static let user = Color(red: 0.42, green: 0.62, blue: 1.00)      // cool blue
-        static let agent = Color(red: 0.72, green: 0.52, blue: 1.00)     // iris violet
-        static let tool = Color(red: 0.36, green: 0.80, blue: 0.82)      // cyan
-        static let approve = Color(red: 0.36, green: 0.84, blue: 0.60)   // green
-        static let warn = Color(red: 1.00, green: 0.68, blue: 0.30)      // amber
-        static let danger = Color(red: 1.00, green: 0.42, blue: 0.44)    // red
+        static let background = Color(red: 0.02, green: 0.035, blue: 0.045)
 
-        /// Spectral sweep used by the streaming shimmer.
-        static let spectrum: [Color] = [user, agent, tool]
+        static let user = Color(red: 0.88, green: 0.96, blue: 1.00)      // ice white
+        static let agent = Color(red: 0.00, green: 0.95, blue: 1.00)     // neon cyan
+        static let tool = Color(red: 0.15, green: 0.70, blue: 0.78)      // deeper cyan-teal
+        static let approve = Color(red: 0.35, green: 0.95, blue: 0.70)   // mint (reads "success")
+        static let warn = Color(red: 1.00, green: 0.72, blue: 0.32)      // amber
+        static let danger = Color(red: 1.00, green: 0.38, blue: 0.42)    // red
+
+        /// Spectral sweep used by the streaming shimmer, empty-state rings, and the backdrop
+        /// blobs. Cyan → ice white → teal, so the drift stays inside the theme instead of
+        /// reading as a rainbow.
+        static let spectrum: [Color] = [agent, user, tool]
     }
 
     // MARK: Motion

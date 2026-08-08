@@ -8,6 +8,9 @@ struct IrisApp: App {
     var body: some Scene {
         Window("Iris", id: "main") {
             GlassContentView()
+                // Committed to one dark, near-black look rather than following system
+                // appearance — see the comment on Tok.Palette.
+                .preferredColorScheme(.dark)
                 .background(WindowChrome())
         }
         .defaultSize(width: 900, height: 660)
