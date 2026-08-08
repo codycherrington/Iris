@@ -26,6 +26,12 @@ struct ChatMessage: Identifiable, Sendable {
 
 /// Live per-turn and per-session telemetry, straight from the CLI's own reporting.
 struct SessionStats: Sendable {
+    /// Nothing is known about the session until the first turn — `system/init` arrives per
+    /// turn, not at process start. Distinguishing "not yet known" from "known to be bad"
+    /// matters: the auth indicator must not imply API-key billing before it has any data.
+    enum Connection: Sendable { case starting, ready, degraded }
+
+    var connection: Connection = .starting
     var model = "—"
     var authSource = "—"
     var isSubscription = false
@@ -54,8 +60,19 @@ final class SessionModel {
     private var bridge: AgentBridge?
     private var consumer: Task<Void, Never>?
 
-    init(workingDirectory: URL = URL(fileURLWithPath: NSHomeDirectory())) {
-        self.workingDirectory = workingDirectory
+    private static let directoryKey = "iris.workingDirectory"
+
+    init(workingDirectory: URL? = nil) {
+        // Remember the last folder so the app doesn't reopen in $HOME every launch — which
+        // also means re-triggering macOS's Documents-access prompt each time.
+        if let explicit = workingDirectory {
+            self.workingDirectory = explicit
+        } else if let saved = UserDefaults.standard.url(forKey: Self.directoryKey),
+                  FileManager.default.fileExists(atPath: saved.path) {
+            self.workingDirectory = saved
+        } else {
+            self.workingDirectory = URL(fileURLWithPath: NSHomeDirectory())
+        }
     }
 
     // MARK: Lifecycle
@@ -90,6 +107,8 @@ final class SessionModel {
     func changeDirectory(to url: URL) async {
         await stop()
         workingDirectory = url
+        UserDefaults.standard.set(url, forKey: Self.directoryKey)
+        stats = SessionStats()
         await start()
     }
 
@@ -150,6 +169,7 @@ final class SessionModel {
             stats.model = info.model
             stats.authSource = info.apiKeySource
             stats.isSubscription = info.isSubscriptionAuth
+            stats.connection = info.isSubscriptionAuth ? .ready : .degraded
             stats.mcpNeedingAuth = info.mcpServers.filter(\.needsAuth).map(\.name)
 
         case .rateLimit(let info):
