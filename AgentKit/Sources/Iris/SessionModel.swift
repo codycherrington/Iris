@@ -14,7 +14,10 @@ struct ToolCall: Identifiable, Sendable {
 }
 
 struct ChatMessage: Identifiable, Sendable {
-    enum Role: Sendable { case user, assistant }
+    /// `note` is Iris speaking as the app rather than as the agent — "that command doesn't
+    /// work here", "model changed". Rendered as a quiet centred line, not a bubble, so it
+    /// never reads as something the model said.
+    enum Role: Sendable { case user, assistant, note }
     let id = UUID()
     let role: Role
     var text: String
@@ -94,6 +97,9 @@ final class SessionModel {
 
     private var bridge: AgentBridge?
     private var consumer: Task<Void, Never>?
+    /// The last thing sent, kept only long enough to recognise a swallowed slash command
+    /// when the turn comes back empty.
+    private var lastUserText: String?
 
     private static let directoryKey = "iris.workingDirectory"
 
@@ -223,7 +229,10 @@ final class SessionModel {
 
     func send(_ text: String) async {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty, let bridge else { return }
+        guard !trimmed.isEmpty else { return }
+        if trimmed.hasPrefix("/"), await handleLocally(trimmed) { return }
+        guard let bridge else { return }
+        lastUserText = trimmed
         messages.append(ChatMessage(role: .user, text: trimmed, isConfirmed: true))
         isBusy = true
         stats.ttftMS = nil
@@ -240,6 +249,89 @@ final class SessionModel {
             fatalError = String(describing: error)
             isBusy = false
         }
+    }
+
+    // MARK: Slash commands
+
+    /// Handle the commands Iris has to answer itself. Returns true when the input was
+    /// consumed and must not reach the CLI.
+    ///
+    /// Slash commands split into two kinds, verified against 2.1.226 by sending each through
+    /// a live bridge:
+    ///
+    /// - **Skill and plugin commands work as-is.** `/git-workflow …` expands to its prompt,
+    ///   reaches the model, and answers normally — nothing to intercept.
+    /// - **Built-in CLI commands are silently swallowed.** `/context` came back with
+    ///   `ttft 0ms`, `dispatch 0ms`, `$0.0000` and no content at all: recognized by the CLI,
+    ///   never sent to the model, nothing emitted. They're features of the interactive TTY
+    ///   and print mode has nowhere to put them.
+    ///
+    /// The three below have real equivalents in Iris, so they're answered here rather than
+    /// disappearing. Everything else is caught after the fact — see `noteIfCommandVanished`
+    /// — because the set of built-ins is version-dependent and hardcoding it would rot.
+    private func handleLocally(_ input: String) async -> Bool {
+        let parts = input.dropFirst().split(separator: " ", maxSplits: 1)
+        guard let name = parts.first.map(String.init) else { return false }
+        let argument = parts.count > 1
+            ? parts[1].trimmingCharacters(in: .whitespaces) : ""
+
+        switch name {
+        case "clear":
+            await stop()
+            resetStats()
+            messages.removeAll()
+            await start()
+            return true
+
+        case "model":
+            guard let choice = ModelChoice.all.first(where: { $0.id == argument }) else {
+                note("Usage: /model \(ModelChoice.all.map(\.id).joined(separator: " | "))"
+                     + "  ·  or click the model chip in the status bar.")
+                return true
+            }
+            var next = settings
+            next.model = choice.id
+            note("Switching to \(choice.label). Restarting the session.")
+            await applySettings(next)
+            return true
+
+        case "effort":
+            guard let level = AgentConfiguration.Effort(rawValue: argument) else {
+                note("Usage: /effort "
+                     + AgentConfiguration.Effort.allCases.map(\.rawValue)
+                        .joined(separator: " | "))
+                return true
+            }
+            var next = settings
+            next.effort = level
+            note("Effort set to \(level.rawValue). Restarting the session.")
+            await applySettings(next)
+            return true
+
+        default:
+            return false
+        }
+    }
+
+    /// A built-in command reached the CLI, got swallowed, and produced nothing. Say so
+    /// rather than leaving the turn looking dead.
+    ///
+    /// Detected by behaviour rather than by a hardcoded list of built-ins: any `/command`
+    /// that completes having emitted no text, no tool call and no reasoning was consumed by
+    /// the CLI. That stays correct as the CLI's command set changes.
+    private func noteIfCommandVanished() {
+        let sent = lastUserText
+        // Cleared unconditionally: a stale value would misattribute the *next* empty turn.
+        lastUserText = nil
+        guard let sent, sent.hasPrefix("/") else { return }
+        let name = sent.dropFirst().split(separator: " ").first.map(String.init) ?? sent
+        note("`/\(name)` is an interactive Claude Code command — it doesn't run in a "
+             + "print-mode session, so nothing happened. Skill commands like "
+             + "`/git-workflow` do work here.")
+    }
+
+    private func note(_ text: String) {
+        messages.append(ChatMessage(role: .note, text: text, isConfirmed: true))
     }
 
     /// Abort the in-flight turn. The CLI tears down the turn and exits 143, so the session
@@ -368,6 +460,11 @@ final class SessionModel {
             if let last = messages.last, last.role == .assistant, last.text.isEmpty,
                last.toolCalls.isEmpty, !last.didThink {
                 messages.removeLast()
+                // A turn that produced literally nothing is the signature of a built-in
+                // slash command being swallowed by the CLI.
+                noteIfCommandVanished()
+            } else {
+                lastUserText = nil
             }
 
         default:

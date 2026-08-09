@@ -17,6 +17,32 @@ struct GlassMessageRow: View {
     private var accent: Color { isUser ? Tok.Palette.user : Tok.Palette.agent }
 
     var body: some View {
+        if message.role == .note {
+            noteRow
+        } else {
+            bubbleRow
+        }
+    }
+
+    /// The app talking, not the agent. Centred, quiet, and deliberately *not* in glass —
+    /// anything wearing a message bubble reads as something Iris said, and these aren't.
+    private var noteRow: some View {
+        HStack(alignment: .top, spacing: Tok.Space.tight) {
+            Image(systemName: "info.circle")
+                .font(.system(size: 10))
+            MarkdownText(raw: message.text)
+                .font(Tok.TypeScale.label)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .foregroundStyle(.tertiary)
+        .frame(maxWidth: 520)
+        .frame(maxWidth: .infinity)
+        .padding(.horizontal, Tok.Space.loose)
+        .padding(.vertical, Tok.Space.tight)
+        .transition(.glassAppear(reduceMotion: reduceMotion))
+    }
+
+    private var bubbleRow: some View {
         // The row must span the full transcript width or the Spacer has nothing to push
         // against and every bubble collapses toward the leading edge.
         HStack(alignment: .top, spacing: 0) {
