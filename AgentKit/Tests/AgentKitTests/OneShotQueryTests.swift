@@ -152,6 +152,58 @@ final class OneShotQueryTests: XCTestCase {
         XCTAssertFalse(args.contains("--append-system-prompt"))
     }
 
+    // MARK: Pre-flight auth
+
+    /// `claude auth status --json` is the only way to know a session's auth *before* it
+    /// takes a turn, since `system/init` is per-turn. These pin the field that decides it.
+    ///
+    /// Note it reads a missing key and an explicit `null` identically — the CLI omits
+    /// `apiKeySource` entirely on the subscription path but emits it as null elsewhere, and
+    /// both mean "no key involved".
+    func testAuthStatusTreatsAbsentKeySourceAsSubscription() throws {
+        let json = """
+            {"loggedIn":true,"authMethod":"claude.ai","apiProvider":"firstParty",
+             "email":"x@example.com","subscriptionType":"pro"}
+            """
+        let status = try decodeAuthStatus(json)
+        XCTAssertTrue(status.isSubscriptionAuth)
+        XCTAssertEqual(status.subscriptionType, "pro")
+        XCTAssertNil(status.apiKeySource)
+    }
+
+    /// The shape observed with `ANTHROPIC_API_KEY` set: the key source appears and every
+    /// subscription field goes null. This must never read as subscription auth.
+    func testAuthStatusWithAKeyIsNotSubscription() throws {
+        let json = """
+            {"loggedIn":true,"authMethod":"claude.ai","apiProvider":"firstParty",
+             "apiKeySource":"ANTHROPIC_API_KEY","email":null,"subscriptionType":null}
+            """
+        let status = try decodeAuthStatus(json)
+        XCTAssertFalse(status.isSubscriptionAuth,
+                       "a key in play must never be reported as subscription auth")
+        XCTAssertEqual(status.apiKeySource, "ANTHROPIC_API_KEY")
+    }
+
+    func testLoggedOutIsNotSubscription() throws {
+        let status = try decodeAuthStatus(#"{"loggedIn":false}"#)
+        XCTAssertFalse(status.isSubscriptionAuth)
+    }
+
+    /// Mirrors `AuthProbe.check`'s parsing without launching the CLI, so the suite stays
+    /// hermetic. If the two ever drift this test is worthless — keep them together.
+    private func decodeAuthStatus(_ json: String) throws -> AuthStatus {
+        let data = try XCTUnwrap(json.data(using: .utf8))
+        let obj = try XCTUnwrap(
+            (try? JSONSerialization.jsonObject(with: data)) as? [String: Any])
+        return AuthStatus(
+            loggedIn: obj["loggedIn"] as? Bool ?? false,
+            authMethod: obj["authMethod"] as? String,
+            apiProvider: obj["apiProvider"] as? String,
+            apiKeySource: obj["apiKeySource"] as? String,
+            subscriptionType: obj["subscriptionType"] as? String,
+            email: obj["email"] as? String)
+    }
+
     func testDefaultsAreTheCheapOnes() {
         let config = OneShotConfiguration(systemPrompt: "x")
         XCTAssertEqual(config.model, "haiku")

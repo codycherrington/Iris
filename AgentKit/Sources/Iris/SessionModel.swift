@@ -34,9 +34,13 @@ struct ChatMessage: Identifiable, Sendable {
 
 /// Live per-turn and per-session telemetry, straight from the CLI's own reporting.
 struct SessionStats: Sendable {
-    /// Nothing is known about the session until the first turn — `system/init` arrives per
-    /// turn, not at process start. Distinguishing "not yet known" from "known to be bad"
-    /// matters: the auth indicator must not imply API-key billing before it has any data.
+    /// `system/init` arrives per turn, not at process start, so a freshly launched session
+    /// knows nothing about itself until the first message. `AuthProbe` closes that gap by
+    /// reading local credentials (~0.25 s, no model call), which is why `.starting` is now
+    /// a brief real state rather than where the indicator sat until you typed something.
+    ///
+    /// Distinguishing "not yet known" from "known to be bad" still matters: the indicator
+    /// must never imply API-key billing before it has evidence either way.
     enum Connection: Sendable { case starting, ready, degraded }
 
     var connection: Connection = .starting
@@ -48,6 +52,8 @@ struct SessionStats: Sendable {
     var model = "—"
     var authSource = "—"
     var isSubscription = false
+    /// "pro", "max" — from the pre-flight probe. Nil when a key is in play or unknown.
+    var subscriptionPlan: String?
     var ttftMS: Int?
     var dispatchMS: Int?
     var sessionCostUSD: Double?
@@ -144,6 +150,9 @@ final class SessionModel {
             return
         }
         isRunning = true
+        // Fire and forget: the probe is fast, but the session must not wait on it. Its only
+        // job is to fill the status indicator before the first turn does it properly.
+        Task { [weak self] in await self?.probeAuth() }
         consumer = Task { [weak self] in
             for await event in stream {
                 await self?.handle(event, from: bridge)
@@ -152,11 +161,37 @@ final class SessionModel {
         }
     }
 
+    /// Clear per-session telemetry while keeping what's known from configuration. A bare
+    /// `SessionStats()` wiped the model and effort back to "—", which is wrong: those are
+    /// launch arguments and stay true across a directory change.
+    private func resetStats() {
+        stats = SessionStats()
+        stats.configuredModel = ModelChoice.label(forReportedModel: settings.model)
+        stats.configuredEffort = settings.effort.rawValue
+    }
+
+    /// Fill in the auth indicator before the first turn can.
+    ///
+    /// Reads local credentials only — no model call, so this is free to run on every launch.
+    /// A failure here is deliberately silent: it means the indicator stays on "checking…"
+    /// until `system/init` answers authoritatively, which is exactly the old behaviour and
+    /// no worse than it was.
+    private func probeAuth() async {
+        guard let status = try? await AuthProbe.check() else { return }
+        // Don't overwrite a real answer. `system/init` is authoritative, and on a fast
+        // first turn it can land before this returns.
+        guard stats.connection == .starting else { return }
+        stats.authSource = status.apiKeySource ?? "none"
+        stats.isSubscription = status.isSubscriptionAuth
+        stats.subscriptionPlan = status.subscriptionType
+        stats.connection = status.isSubscriptionAuth ? .ready : .degraded
+    }
+
     func changeDirectory(to url: URL) async {
         await stop()
         workingDirectory = url
         UserDefaults.standard.set(url, forKey: Self.directoryKey)
-        stats = SessionStats()
+        resetStats()
         await start()
     }
 

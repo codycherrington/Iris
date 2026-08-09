@@ -22,6 +22,22 @@ let dim = { styled($0, "2") }, bold = { styled($0, "1") }, red = { styled($0, "3
 
 print(bold("iris-cli") + dim(" — AgentKit harness. Ctrl-D to exit.\n"))
 
+// Pre-flight auth, the same check the app runs at launch. Reads local credentials only —
+// no model call — so it costs nothing but tells you immediately whether this install is on
+// the subscription, instead of waiting for the first turn's `system/init`.
+do {
+    let started = ContinuousClock().now
+    let status = try await AuthProbe.check()
+    let took = ContinuousClock().now - started
+    let label = status.isSubscriptionAuth
+        ? styled("subscription", "32") + dim(status.subscriptionType.map { " (\($0))" } ?? "")
+        : red("apiKeySource=\(status.apiKeySource ?? "not logged in")")
+    print(dim("  auth: ") + label + dim("  · \(took) (no model call)"))
+} catch {
+    print(dim("  auth: probe failed — \(error)"))
+}
+print("")
+
 // MARK: - Sidebar probe
 
 /// The shape a prompt-improver sidebar would ask for. Lives here rather than in AgentKit

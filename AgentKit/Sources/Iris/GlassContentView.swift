@@ -517,10 +517,10 @@ struct GlassStatusBar: View {
         let tail = "  ·  Click to change model or effort."
         switch stats.connection {
         case .starting:
-            return "Auth confirms on your first message — system/init is emitted per turn, "
-                + "not at launch." + tail
+            return "Checking local credentials…" + tail
         case .ready:
-            return "apiKeySource = none — running on your Claude subscription." + tail
+            let plan = stats.subscriptionPlan.map { " (\($0))" } ?? ""
+            return "apiKeySource = none — running on your Claude subscription\(plan)." + tail
         case .degraded:
             return "apiKeySource = \(stats.authSource) — NOT the subscription path." + tail
         }
