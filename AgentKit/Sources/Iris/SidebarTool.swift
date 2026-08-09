@@ -1,0 +1,394 @@
+import AgentKit
+import Foundation
+import Observation
+import SwiftUI
+
+// MARK: - Protocol
+
+/// A panel that lives beside the conversation and does its own small job.
+///
+/// The defining constraint is what a sidebar tool *isn't*: it never touches the session.
+/// Model-backed tools run through `OneShotQuery` — a separate, stripped, Haiku-pinned
+/// `claude -p` process — so nothing they do enters the transcript or the main context
+/// window. That independence is the whole reason the sidebar exists; a tool that needs the
+/// conversation's history or its file tools belongs in the conversation.
+///
+/// A class rather than a struct: each tool holds live state (draft text, last result,
+/// in-flight task) that has to survive the panel being scrolled, reordered, or hidden.
+@MainActor
+protocol SidebarTool: AnyObject, Identifiable {
+    /// Stable across launches — this is what the layout file stores. Renaming one orphans
+    /// the user's arrangement, so treat it like a database key.
+    var id: String { get }
+    var title: String { get }
+    /// SF Symbol for the header and the picker.
+    var symbol: String { get }
+    var tint: Color { get }
+    /// One line, shown in the picker so "bug checker" isn't the only clue about what it does.
+    var blurb: String { get }
+    /// Whether running this tool spends quota. Surfaced in the picker because sidebar calls
+    /// draw from the same pool as the conversation and can rate-limit it.
+    var usesModel: Bool { get }
+
+    func makeView() -> AnyView
+}
+
+// MARK: - Layout
+
+/// Which tools are showing, in which order. Persisted so the arrangement survives relaunch.
+struct SidebarLayout: Codable, Equatable, Sendable {
+    var enabled: [String]
+
+    /// Notes first because it costs nothing and is useful immediately; the prompt improver
+    /// next because it's the one that most often earns its 9 seconds.
+    static let `default` = SidebarLayout(enabled: ["notes", "prompt-improver"])
+}
+
+// MARK: - Registry
+
+/// Owns every available tool and the user's arrangement of them.
+///
+/// Tools are instantiated once at launch and kept alive whether or not they're visible —
+/// hiding a tool should not throw away the note you were halfway through writing.
+@MainActor
+@Observable
+final class SidebarRegistry {
+    static let shared = SidebarRegistry()
+
+    let all: [any SidebarTool]
+    private(set) var layout: SidebarLayout
+
+    private static var directoryURL: URL {
+        URL.applicationSupportDirectory.appendingPathComponent("Iris", isDirectory: true)
+    }
+    private static var fileURL: URL {
+        directoryURL.appendingPathComponent("sidebar.json")
+    }
+
+    init(tools: [any SidebarTool]? = nil) {
+        all = tools ?? [
+            NotesTool(),
+            PromptImproverTool(),
+            ReviewTool.sqlReviewer(),
+            ReviewTool.bugChecker(),
+        ]
+
+        let stored = (try? Data(contentsOf: Self.fileURL))
+            .flatMap { try? JSONDecoder().decode(SidebarLayout.self, from: $0) }
+        // Drop ids that no longer exist rather than rendering a hole. A layout written by a
+        // build that had a tool this one doesn't must not strand the panel.
+        let known = Set(all.map(\.id))
+        layout = SidebarLayout(
+            enabled: (stored ?? .default).enabled.filter(known.contains))
+    }
+
+    var enabledTools: [any SidebarTool] {
+        layout.enabled.compactMap { id in all.first { $0.id == id } }
+    }
+
+    var availableTools: [any SidebarTool] {
+        all.filter { !layout.enabled.contains($0.id) }
+    }
+
+    func enable(_ id: String) {
+        guard !layout.enabled.contains(id), all.contains(where: { $0.id == id }) else { return }
+        layout.enabled.append(id)
+        persist()
+    }
+
+    func disable(_ id: String) {
+        layout.enabled.removeAll { $0 == id }
+        persist()
+    }
+
+    func move(fromOffsets source: IndexSet, toOffset destination: Int) {
+        layout.enabled.move(fromOffsets: source, toOffset: destination)
+        persist()
+    }
+
+    /// Failure is swallowed: a layout that won't persist is a nuisance, not a reason to
+    /// stop the user rearranging their panel this session. Same call as `PersonaStore`.
+    private func persist() {
+        do {
+            try FileManager.default.createDirectory(
+                at: Self.directoryURL, withIntermediateDirectories: true)
+            let encoder = JSONEncoder()
+            encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+            try encoder.encode(layout).write(to: Self.fileURL, options: .atomic)
+        } catch {
+            NSLog("Iris: failed to persist sidebar layout — \(error)")
+        }
+    }
+}
+
+// MARK: - One-shot runner
+
+/// Drives one `OneShotQuery` call and exposes it as observable UI state.
+///
+/// Every model-backed tool shares this. The `running` phase is not optional decoration:
+/// measured end-to-end latency is ~9 s — about 7 s of model time plus ~2 s of process spawn
+/// that the CLI's own `duration_ms` doesn't count — so a tool without a visible pending
+/// state reads as broken for the better part of ten seconds.
+@MainActor
+@Observable
+final class OneShotRunner<Output: StructuredOutput> {
+    enum Phase {
+        case idle
+        case running
+        case failed(String)
+        case done(Output, OneShotUsage)
+    }
+
+    private(set) var phase: Phase = .idle
+    private var task: Task<Void, Never>?
+
+    let systemPrompt: String
+
+    init(systemPrompt: String) {
+        self.systemPrompt = systemPrompt
+    }
+
+    var isRunning: Bool { if case .running = phase { return true }; return false }
+
+    func run(_ input: String, workingDirectory: URL) {
+        let trimmed = input.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+
+        task?.cancel()
+        phase = .running
+        task = Task { [systemPrompt] in
+            do {
+                let result = try await OneShotQuery.run(
+                    Output.self,
+                    prompt: trimmed,
+                    // Everything cost-related is a default on OneShotConfiguration — haiku,
+                    // no tools, no setting sources. Don't re-specify them here; the one
+                    // place they're decided is the type that measured them.
+                    configuration: OneShotConfiguration(
+                        workingDirectory: workingDirectory,
+                        systemPrompt: systemPrompt))
+                guard !Task.isCancelled else { return }
+                phase = .done(result.value, result.usage)
+            } catch is CancellationError {
+                phase = .idle
+            } catch {
+                guard !Task.isCancelled else { return }
+                phase = .failed(String(describing: error))
+            }
+        }
+    }
+
+    func cancel() {
+        task?.cancel()
+        task = nil
+        phase = .idle
+    }
+
+    func reset() {
+        cancel()
+        phase = .idle
+    }
+}
+
+// MARK: - Shared output shapes
+
+/// The prompt improver's result.
+struct PromptCritique: StructuredOutput {
+    let score: Int
+    let issues: [String]
+    let rewrite: String
+
+    static let jsonSchema = """
+        {"type":"object","properties":\
+        {"score":{"type":"integer","description":"1-10 quality of the prompt"},\
+        "issues":{"type":"array","items":{"type":"string"}},\
+        "rewrite":{"type":"string"}},\
+        "required":["score","issues","rewrite"],"additionalProperties":false}
+        """
+}
+
+/// Shared by the SQL reviewer and the bug checker. They differ in what they're told to look
+/// for, not in the shape of an answer — both produce a ranked list of "here, this, fix it",
+/// so they share one type rather than two identical ones with different field names.
+struct FindingList: StructuredOutput {
+    struct Finding: Codable, Sendable, Identifiable {
+        /// "high" | "medium" | "low". A plain string because the model fills it in and an
+        /// unexpected value should render, not throw.
+        let severity: String
+        /// Line number, table name, function — whatever locates it. Optional: plenty of
+        /// findings are about the whole input.
+        let location: String?
+        let issue: String
+        let fix: String
+
+        var id: String { "\(severity)-\(location ?? "")-\(issue)" }
+    }
+
+    let summary: String
+    let findings: [Finding]
+
+    static let jsonSchema = """
+        {"type":"object","properties":\
+        {"summary":{"type":"string"},\
+        "findings":{"type":"array","items":{"type":"object","properties":\
+        {"severity":{"type":"string","enum":["high","medium","low"]},\
+        "location":{"type":"string"},\
+        "issue":{"type":"string"},\
+        "fix":{"type":"string"}},\
+        "required":["severity","location","issue","fix"],"additionalProperties":false}}},\
+        "required":["summary","findings"],"additionalProperties":false}
+        """
+}
+
+extension FindingList.Finding {
+    var tint: Color {
+        switch severity.lowercased() {
+        case "high": return Tok.Palette.danger
+        case "medium": return Tok.Palette.warn
+        default: return Tok.Palette.tool
+        }
+    }
+}
+
+// MARK: - Tools
+
+/// Scratch text. Deliberately the first tool built and the first one shown: it makes no model
+/// call at all, which proved the panel, the registry, and the persistence layer without any
+/// of the ~9 s latency in the way.
+@MainActor
+@Observable
+final class NotesTool: SidebarTool {
+    nonisolated let id = "notes"
+    nonisolated let title = "Notes"
+    nonisolated let symbol = "note.text"
+    nonisolated var tint: Color { Tok.Palette.user }
+    nonisolated let blurb = "Scratch text, kept across launches. No model call."
+    nonisolated let usesModel = false
+
+    var text: String {
+        didSet { schedulePersist() }
+    }
+
+    private var persistTask: Task<Void, Never>?
+
+    private static var fileURL: URL {
+        URL.applicationSupportDirectory
+            .appendingPathComponent("Iris", isDirectory: true)
+            .appendingPathComponent("notes.txt")
+    }
+
+    init() {
+        text = (try? String(contentsOf: Self.fileURL, encoding: .utf8)) ?? ""
+    }
+
+    func makeView() -> AnyView { AnyView(NotesToolView(tool: self)) }
+
+    /// Debounced: `didSet` fires on every keystroke, and writing the file that often is
+    /// pointless disk churn for a scratchpad. Half a second after typing stops is soon
+    /// enough that nothing is lost to a crash worth worrying about.
+    private func schedulePersist() {
+        persistTask?.cancel()
+        persistTask = Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(500))
+            guard !Task.isCancelled else { return }
+            self?.persist()
+        }
+    }
+
+    private func persist() {
+        do {
+            try FileManager.default.createDirectory(
+                at: Self.fileURL.deletingLastPathComponent(),
+                withIntermediateDirectories: true)
+            try text.write(to: Self.fileURL, atomically: true, encoding: .utf8)
+        } catch {
+            NSLog("Iris: failed to persist notes — \(error)")
+        }
+    }
+}
+
+@MainActor
+@Observable
+final class PromptImproverTool: SidebarTool {
+    nonisolated let id = "prompt-improver"
+    nonisolated let title = "Prompt improver"
+    nonisolated let symbol = "wand.and.stars"
+    nonisolated var tint: Color { Tok.Palette.agent }
+    nonisolated let blurb = "Score a prompt, list what's vague, hand back a rewrite."
+    nonisolated let usesModel = true
+
+    var draft = ""
+    let runner = OneShotRunner<PromptCritique>(systemPrompt: """
+        You review prompts written for a coding agent and make them precise. Judge only the \
+        prompt, never carry it out. Name concrete defects — unbound referents, undefined \
+        success criteria, missing constraints — not vague notes about tone. The rewrite must \
+        be usable as-is. Respond only via the structured output schema.
+        """)
+
+    func makeView() -> AnyView { AnyView(PromptImproverToolView(tool: self)) }
+}
+
+/// The SQL reviewer and the bug checker are the same tool with a different brief. Splitting
+/// them into two classes would have duplicated everything but one string.
+@MainActor
+@Observable
+final class ReviewTool: SidebarTool {
+    nonisolated let id: String
+    nonisolated let title: String
+    nonisolated let symbol: String
+    private let tintColor: Color
+    nonisolated var tint: Color { tintColor }
+    nonisolated let blurb: String
+    nonisolated let usesModel = true
+    let placeholder: String
+
+    var draft = ""
+    let runner: OneShotRunner<FindingList>
+
+    private init(id: String, title: String, symbol: String, tint: Color, blurb: String,
+                 placeholder: String, systemPrompt: String) {
+        self.id = id
+        self.title = title
+        self.symbol = symbol
+        self.tintColor = tint
+        self.blurb = blurb
+        self.placeholder = placeholder
+        self.runner = OneShotRunner<FindingList>(systemPrompt: systemPrompt)
+    }
+
+    func makeView() -> AnyView { AnyView(ReviewToolView(tool: self)) }
+
+    static func sqlReviewer() -> ReviewTool {
+        ReviewTool(
+            id: "sql-reviewer",
+            title: "SQL reviewer",
+            symbol: "cylinder.split.1x2",
+            tint: Tok.Palette.tool,
+            blurb: "Check a query for correctness, performance, and injection risk.",
+            placeholder: "Paste a query…",
+            systemPrompt: """
+                You review SQL. Report correctness bugs, performance problems (missing \
+                indexes, unbounded scans, N+1 shapes), and injection risk. Rank by severity. \
+                Do not rewrite the whole query unless the fix requires it. If the query is \
+                fine, say so with an empty findings list rather than inventing nits. Respond \
+                only via the structured output schema.
+                """)
+    }
+
+    static func bugChecker() -> ReviewTool {
+        ReviewTool(
+            id: "bug-checker",
+            title: "Bug checker",
+            symbol: "ladybug",
+            tint: Tok.Palette.warn,
+            blurb: "Read a snippet and look for real defects, not style.",
+            placeholder: "Paste code…",
+            systemPrompt: """
+                You look for real defects in code: off-by-one errors, unhandled nil or error \
+                cases, race conditions, resource leaks, incorrect boundary conditions. \
+                Ignore formatting and naming. Every finding needs a concrete failure case — \
+                if you can't describe input that breaks it, leave it out. An empty findings \
+                list is a valid answer. Respond only via the structured output schema.
+                """)
+    }
+}

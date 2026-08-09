@@ -4,8 +4,10 @@ import SwiftUI
 struct GlassContentView: View {
     @State private var personas = PersonaStore.shared
     @State private var model = SessionModel(persona: PersonaStore.shared.persona)
+    @State private var registry = SidebarRegistry.shared
     @State private var draft = ""
     @State private var showingPersona = false
+    @State private var showingSidebar = false
     @FocusState private var composerFocused: Bool
     @Namespace private var glass
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -14,22 +16,37 @@ struct GlassContentView: View {
         ZStack {
             AuroraBackdrop()
 
-            VStack(spacing: 0) {
-                transcript
-                composer
-                GlassStatusBar(stats: model.stats, isBusy: model.isBusy,
-                               directory: model.workingDirectory,
-                               assistantName: model.persona.assistantName,
-                               namespace: glass,
-                               onPickDirectory: pickDirectory,
-                               onEditPersona: {
-                                   // Iris may have edited the file itself since launch.
-                                   personas.reload()
-                                   showingPersona = true
-                               })
+            HStack(spacing: 0) {
+                VStack(spacing: 0) {
+                    transcript
+                    composer
+                    GlassStatusBar(stats: model.stats, isBusy: model.isBusy,
+                                   directory: model.workingDirectory,
+                                   assistantName: model.persona.assistantName,
+                                   sidebarShowing: showingSidebar,
+                                   namespace: glass,
+                                   onPickDirectory: pickDirectory,
+                                   onEditPersona: {
+                                       // Iris may have edited the file itself since launch.
+                                       personas.reload()
+                                       showingPersona = true
+                                   },
+                                   onToggleSidebar: toggleSidebar)
+                }
+
+                if showingSidebar {
+                    SidebarPanel(registry: registry,
+                                 workingDirectory: model.workingDirectory,
+                                 onClose: toggleSidebar)
+                        // Slides in from the edge it lives on; opacity alone made it appear
+                        // to materialise on top of the transcript.
+                        .transition(.move(edge: .trailing).combined(with: .opacity))
+                }
             }
         }
-        .frame(minWidth: 640, minHeight: 480)
+        // Wider floor when the rail is out: 640 minus a 320pt panel leaves the transcript
+        // too narrow for a code block to be readable.
+        .frame(minWidth: showingSidebar ? 940 : 640, minHeight: 480)
         .task {
             // Don't launch a session behind the first-run wizard: the persona is a launch
             // argument, so a session started now would have to be torn down and relaunched
@@ -71,6 +88,18 @@ struct GlassContentView: View {
                    value: model.messages.count)
         .animation(Tok.Motion.resolved(Tok.Motion.touch, reduceMotion: reduceMotion),
                    value: model.isBusy)
+        .animation(Tok.Motion.resolved(Tok.Motion.content, reduceMotion: reduceMotion),
+                   value: showingSidebar)
+        .background {
+            // Hosts the keyboard shortcut without putting a visible control in the chrome.
+            Button("Toggle Tools", action: toggleSidebar)
+                .keyboardShortcut("s", modifiers: [.command, .option])
+                .hidden()
+        }
+    }
+
+    private func toggleSidebar() {
+        showingSidebar.toggle()
     }
 
     // MARK: Transcript
@@ -326,9 +355,11 @@ struct GlassStatusBar: View {
     let isBusy: Bool
     let directory: URL
     let assistantName: String
+    let sidebarShowing: Bool
     let namespace: Namespace.ID
     let onPickDirectory: () -> Void
     let onEditPersona: () -> Void
+    let onToggleSidebar: () -> Void
 
     var body: some View {
         GlassEffectContainer(spacing: Tok.Fusion.status) {
@@ -399,6 +430,17 @@ struct GlassStatusBar: View {
                 if let cost = stats.sessionCostUSD {
                     metric(String(format: "$%.4f", cost), tint: nil)
                 }
+
+                Button(action: onToggleSidebar) {
+                    Image(systemName: "sidebar.right")
+                        .font(.system(size: 9))
+                        .foregroundStyle(sidebarShowing ? Tok.Palette.agent : .secondary)
+                        .padding(.horizontal, Tok.Space.snug)
+                        .padding(.vertical, 5)
+                }
+                .buttonStyle(.plain)
+                .glassEffect(Tok.Surface.interactive, in: .capsule)
+                .help("Tools (⌘⌥S)")
             }
             .font(Tok.TypeScale.mono)
             .padding(.horizontal, Tok.Space.base)
