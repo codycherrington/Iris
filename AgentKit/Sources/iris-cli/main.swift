@@ -5,9 +5,11 @@ import Foundation
 ///
 ///   make harness              interactive
 ///   make harness ARGS="-b"    scripted 3-turn benchmark (no input needed)
+///   make harness ARGS="-s"    one live OneShotQuery call; prints its token cost
 
 let args = CommandLine.arguments.dropFirst()
 let benchmark = args.contains("-b") || args.contains("--benchmark")
+let sidebarProbe = args.contains("-s") || args.contains("--sidebar")
 
 let config = AgentConfiguration(
     workingDirectory: URL(fileURLWithPath: FileManager.default.currentDirectoryPath),
@@ -19,6 +21,67 @@ func styled(_ s: String, _ code: String) -> String { "\u{1B}[\(code)m\(s)\u{1B}[
 let dim = { styled($0, "2") }, bold = { styled($0, "1") }, red = { styled($0, "31") }
 
 print(bold("iris-cli") + dim(" — AgentKit harness. Ctrl-D to exit.\n"))
+
+// MARK: - Sidebar probe
+
+/// The shape a prompt-improver sidebar would ask for. Lives here rather than in AgentKit
+/// because the schema belongs to the tool, not to the runner.
+struct PromptCritique: StructuredOutput {
+    let score: Int
+    let issues: [String]
+    let rewrite: String
+
+    static let jsonSchema = """
+        {"type":"object","properties":{"score":{"type":"integer"},\
+        "issues":{"type":"array","items":{"type":"string"}},\
+        "rewrite":{"type":"string"}},\
+        "required":["score","issues","rewrite"],"additionalProperties":false}
+        """
+}
+
+if sidebarProbe {
+    print(bold("sidebar probe") + dim(" — one live OneShotQuery call\n"))
+    // `ARGS="-s --timeout 1"` forces the deadline to fire, which is the only way to
+    // exercise the timeout race against a real process.
+    let timeoutSeconds = args.firstIndex(of: "--timeout")
+        .flatMap { args.indices.contains($0 + 1) ? Int(args[$0 + 1]) : nil }
+    let config = OneShotConfiguration(
+        systemPrompt: "You review prompts. Respond only via the structured output schema.",
+        timeout: .seconds(timeoutSeconds ?? 60))
+    do {
+        let clock = ContinuousClock()
+        var wall: Duration = .zero
+        var out: OneShotResult<PromptCritique>!
+        wall = try await clock.measure {
+            out = try await OneShotQuery.run(
+                PromptCritique.self,
+                prompt: "Rate this prompt: 'make it better'",
+                configuration: config)
+        }
+        let u = out.usage
+        print(dim("  model            ") + (u.model ?? "?"))
+        print(dim("  wall             ") + "\(wall)")
+        print(dim("  duration_ms      ") + "\(u.durationMS ?? -1)")
+        print(dim("  in/out tokens    ") + "\(u.inputTokens ?? -1)/\(u.outputTokens ?? -1)")
+        let cold = u.didPayColdStart
+        print(dim("  cache creation   ")
+              + styled("\(u.cacheCreationTokens ?? -1)", cold ? "31" : "32")
+              + dim(cold ? "  ← cold start leaked back in" : "  (stripped launch holding)"))
+        print(dim("  est. cost        ")
+              + String(format: "$%.5f", u.estimatedCostUSD ?? 0)
+              + dim("  (API-rate estimate; subscription bills quota, not dollars)"))
+        print("\n" + bold("  score \(out.value.score)") + dim("  ·  \(out.value.issues.count) issues"))
+        for issue in out.value.issues.prefix(3) { print(dim("   • \(issue.prefix(88))")) }
+        if cold {
+            print("\n" + red("REGRESSION: a stripped one-shot call must create no cache"))
+            exit(1)
+        }
+    } catch {
+        print(red("sidebar probe failed: \(error)"))
+        exit(1)
+    }
+    exit(0)
+}
 
 let stream: AsyncStream<AgentEvent>
 do {

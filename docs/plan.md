@@ -241,6 +241,13 @@ Only now does it get beautiful.
   optional headless action. Rearrangeable, addable, removable. Ship: notes, prompt improver, SQL
   reviewer, bug checker. Sidebar tools run as **separate short-lived `claude -p` calls with
   `--json-schema`** for structured results, so they never consume the main session's context.
+  *(Runner landed 2026-08-09: `AgentKit/OneShotQuery.swift` + 11 tests. The plan's premise —
+  "never consume the main session's context" — held for **context** but not for **cost**: an
+  unstripped one-shot call measured 18,854 cache-creation tokens / 32.5 s / opus-5, because it
+  inherits nothing and so rebuilds everything. Stripped and pinned to Haiku it is 0 tokens /
+  6.6 s / $0.004. `OneShotConfiguration` bakes those flags in as defaults. Add ~2 s of process
+  spawn that `duration_ms` doesn't count — a sidebar click lands around 9 s, so every tool needs
+  a pending state. Protocol + registry + the four tools are still to build.)*
 - **File path picker** — `NSOpenPanel`, plus a fuzzy in-app finder; inject path into composer or copy.
 - **Project switcher** — sets the subprocess `cwd`, tracks recents, shows git branch + dirty state.
 

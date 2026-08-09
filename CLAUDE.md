@@ -24,6 +24,13 @@ before implementing anything.
   front of the user is not.
 - **Never regress the perf gate.** Phase 0 measured 7–20 ms per-turn dispatch overhead on a
   persistent process. If a change makes Iris feel slower than the terminal, it doesn't ship.
+- **Sidebar tools launch stripped, on Haiku.** A one-shot `claude -p` inherits nothing from
+  the session, so an unstripped call rebuilds the whole prompt cache: measured **18,854
+  cache-creation tokens / 32.5 s / opus-5** versus **0 tokens / 6.6 s / haiku** for the same
+  prompt. `OneShotConfiguration`'s defaults encode that; don't loosen them casually. The
+  dollar figure in `total_cost_usd` is a client-side estimate — on subscription auth the real
+  cost is **quota**, drawn from the same pool as the conversation, so a chatty sidebar can
+  rate-limit the main session.
 - Phases are sequential: don't start Phase N+1 while Phase N's gate is unmet.
 - **Branding:** Iris is not "Claude Code" and must not imitate its visual identity. "Powered
   by Claude" is permitted. Keep Iris's own name and look everywhere user-visible.
@@ -40,6 +47,18 @@ before implementing anything.
   the diff-approval UI is built on.
 - `parent_tool_use_id` is `null` on the main thread and set inside subagents at every nesting
   depth; following it reconstructs the whole tree.
+- `--json-schema` puts the payload in its own `result.structured_output` field (already
+  parsed) *and* mirrors it into `result` as a string. Decode the former — `result` is the
+  assistant's text channel and the mirroring is incidental. It costs an extra turn
+  (`num_turns: 2`, `stop_reason: "tool_use"`): the schema is a forced tool call underneath.
+
+## AppKit / Foundation gotchas
+
+- **`Process.terminationStatus` raises an ObjC exception if the process is still running**,
+  and Swift cannot catch it — the app aborts with `Abort trap: 6`. Always guard on
+  `isRunning` first (see `exitedStatus` in `OneShotQuery.swift`). This crashed every
+  one-shot timeout until it was caught by actually firing a deadline, which is the argument
+  for exercising failure paths against a real process rather than only fixtures.
 
 ## Testing
 

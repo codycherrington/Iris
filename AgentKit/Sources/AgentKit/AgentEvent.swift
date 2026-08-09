@@ -158,12 +158,41 @@ public struct RunResult: Sendable {
     public let durationAPIMS: Int?
 
     /// NOTE: cumulative for the whole session, not per turn. Diff consecutive results
-    /// to get a per-turn cost.
+    /// to get a per-turn cost. Also note it is a *client-side estimate* of API-rate cost;
+    /// on subscription auth nothing is billed against it. The real scarce resource is quota.
     public let totalCostUSD: Double?
     public let modelUsage: [String: ModelUsage]
     /// Tools that were blocked. Carries the *full* intended input, which is what makes
     /// a native diff-approval UI possible without an MCP permission server.
     public let permissionDenials: [Denial]
+
+    /// The `--json-schema` payload, re-serialized. Present only on runs launched with a
+    /// schema. The CLI also mirrors this into `result` as a string, but that field is the
+    /// assistant's text channel — `structured_output` is the one that means it, so decode
+    /// from here.
+    public let structuredOutputJSON: Data?
+
+    /// Token accounting for the run. Sidebar tools live or die on `cacheCreationInputTokens`
+    /// — see `OneShotConfiguration`.
+    public let usage: Usage?
+
+    public struct Usage: Sendable {
+        public let inputTokens: Int?
+        public let outputTokens: Int?
+        public let cacheReadInputTokens: Int?
+        /// A cold start rebuilds the system prompt and tool definitions from scratch. On a
+        /// stripped one-shot call this should be 0; a non-zero value means something
+        /// (tools, CLAUDE.md, MCP config) leaked back into the launch.
+        public let cacheCreationInputTokens: Int?
+    }
+
+    /// Decode the structured payload into a concrete type.
+    public func decodeStructuredOutput<T: Decodable>(_ type: T.Type) throws -> T {
+        guard let data = structuredOutputJSON else {
+            throw AgentError.noStructuredOutput(stopReason: stopReason)
+        }
+        return try JSONDecoder().decode(T.self, from: data)
+    }
 
     public struct ModelUsage: Codable, Sendable {
         public let inputTokens: Int?
@@ -317,6 +346,19 @@ public enum AgentEventDecoder {
                     toolUseID: $0["tool_use_id"] as? String ?? "",
                     toolInput: ($0["tool_input"] as? [String: Any] ?? [:]).mapValues(JSONValue.init))
             }
+            // Re-serialize rather than hand back the dictionary: callers want to decode it
+            // into their own type, and JSONDecoder needs bytes.
+            let structured = (obj["structured_output"] as? [String: Any])
+                .flatMap { try? JSONSerialization.data(withJSONObject: $0) }
+
+            let runUsage = (obj["usage"] as? [String: Any]).map {
+                RunResult.Usage(
+                    inputTokens: $0["input_tokens"] as? Int,
+                    outputTokens: $0["output_tokens"] as? Int,
+                    cacheReadInputTokens: $0["cache_read_input_tokens"] as? Int,
+                    cacheCreationInputTokens: $0["cache_creation_input_tokens"] as? Int)
+            }
+
             return .result(RunResult(
                 sessionID: session ?? "",
                 subtype: subtype ?? "",
@@ -331,7 +373,9 @@ public enum AgentEventDecoder {
                 durationAPIMS: obj["duration_api_ms"] as? Int,
                 totalCostUSD: obj["total_cost_usd"] as? Double,
                 modelUsage: usage,
-                permissionDenials: denials))
+                permissionDenials: denials,
+                structuredOutputJSON: structured,
+                usage: runUsage))
 
         default:
             break

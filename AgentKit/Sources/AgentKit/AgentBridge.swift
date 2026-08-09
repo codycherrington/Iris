@@ -11,6 +11,17 @@ public enum AgentError: Error, Sendable, CustomStringConvertible {
     /// Iris treats this as fatal rather than continuing into per-token billing.
     case unexpectedAuthSource(String)
     case launchFailed(String)
+    /// A one-shot query ran past its deadline. Sidebar tools are meant to be quick; a
+    /// hang must not leave a spinner up forever.
+    case timedOut(seconds: Double)
+    /// The run finished but produced no `structured_output`. Usually means the model
+    /// answered in prose instead of calling the schema tool.
+    case noStructuredOutput(stopReason: String?)
+    /// The CLI reported `is_error` on the result line.
+    case runFailed(String)
+    /// The process stopped without ever emitting a `result`. `exitCode` is nil when the
+    /// process was still running — `Process.terminationStatus` cannot be read before exit.
+    case noResult(exitCode: Int32?)
 
     public var description: String {
         switch self {
@@ -27,6 +38,14 @@ public enum AgentError: Error, Sendable, CustomStringConvertible {
                 make sure `claude` is logged in.
                 """
         case .launchFailed(let why): return "failed to launch agent process: \(why)"
+        case .timedOut(let seconds):
+            return "one-shot query exceeded its \(seconds)s deadline"
+        case .noStructuredOutput(let stop):
+            return "run produced no structured_output (stop_reason: \(stop ?? "nil"))"
+        case .runFailed(let why): return "run failed: \(why)"
+        case .noResult(let code):
+            let how = code.map { "exited (\($0))" } ?? "was still running"
+            return "process \(how) without emitting a result event"
         }
     }
 }
