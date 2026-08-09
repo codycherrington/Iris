@@ -41,6 +41,9 @@ enum Tok {
         /// Deliberately 0: the composer field and send button must read as two controls.
         static let composer: CGFloat = 0
         static let status: CGFloat = 0
+        /// Also 0, for the same reason as the transcript: stacked tool cards that fuse read
+        /// as one undifferentiated slab, and the panel's whole job is to keep them separate.
+        static let sidebar: CGFloat = 0
     }
 
     // MARK: Glass

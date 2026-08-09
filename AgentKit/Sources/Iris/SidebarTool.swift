@@ -194,17 +194,29 @@ final class OneShotRunner<Output: StructuredOutput> {
 
 /// The prompt improver's result.
 struct PromptCritique: StructuredOutput {
+    /// Raw, as the model returned it. Read `clampedScore` for anything user-facing.
     let score: Int
     let issues: [String]
     let rewrite: String
 
+    /// A `description` is a request; `minimum`/`maximum` are the constraint. The captured
+    /// fixture was taken against a bare `{"type":"integer"}` and came back **15** — which
+    /// the panel would have rendered as a confident green "15/10". The bounds below are the
+    /// real fix; `clampedScore` is the belt to their braces, because the schema is enforced
+    /// by a model and this is a UI that must not display nonsense either way.
     static let jsonSchema = """
         {"type":"object","properties":\
-        {"score":{"type":"integer","description":"1-10 quality of the prompt"},\
+        {"score":{"type":"integer","minimum":1,"maximum":10,\
+        "description":"Quality of the prompt, 1 (unusable) to 10 (needs nothing)"},\
         "issues":{"type":"array","items":{"type":"string"}},\
         "rewrite":{"type":"string"}},\
         "required":["score","issues","rewrite"],"additionalProperties":false}
         """
+
+    var clampedScore: Int { min(max(score, 1), 10) }
+    /// True when the model ignored the bounds. Worth showing rather than hiding — it means
+    /// the schema isn't holding.
+    var scoreOutOfRange: Bool { score != clampedScore }
 }
 
 /// Shared by the SQL reviewer and the bug checker. They differ in what they're told to look
@@ -212,6 +224,10 @@ struct PromptCritique: StructuredOutput {
 /// so they share one type rather than two identical ones with different field names.
 struct FindingList: StructuredOutput {
     struct Finding: Codable, Sendable, Identifiable {
+        /// Assigned per instance, never decoded. Deriving the id from the content instead
+        /// meant two genuinely identical findings — the same issue at two call sites with
+        /// no location — collided and one silently vanished from the `ForEach`.
+        let id = UUID()
         /// "high" | "medium" | "low". A plain string because the model fills it in and an
         /// unexpected value should render, not throw.
         let severity: String
@@ -221,7 +237,7 @@ struct FindingList: StructuredOutput {
         let issue: String
         let fix: String
 
-        var id: String { "\(severity)-\(location ?? "")-\(issue)" }
+        private enum CodingKeys: String, CodingKey { case severity, location, issue, fix }
     }
 
     let summary: String

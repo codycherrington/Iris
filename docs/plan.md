@@ -251,10 +251,25 @@ Only now does it get beautiful.
   see **ADR-008** for why the runner is a separate type from `AgentBridge`, and
   `docs/research/one-shot-cost-model.md` for the measurements. Also settled: one-shot calls
   report `apiKeySource: "none"` — same subscription path, nothing billed — so the constraint is
-  **quota**, drawn from the same five-hour pool as the conversation. Protocol + registry + the
-  four tools are still to build.)*
+  **quota**, drawn from the same five-hour pool as the conversation.)*
+  *(**Done 2026-08-09, `63d6b70`.** `SidebarTool.swift` + `SidebarViews.swift`: a class-bound
+  `SidebarTool` protocol, a `SidebarRegistry` owning one long-lived instance of each tool, a
+  layout persisted to `~/Library/Application Support/Iris/sidebar.json`, a right rail toggled
+  with ⌘⌥S, and all four tools — notes, prompt improver, SQL reviewer, bug checker. Tools are
+  classes because each holds live state that must survive being hidden or collapsed; the two
+  review tools are one class with two briefs; the three model-backed tools share one
+  `OneShotRunner`. See **ADR-009**. The ~9 s latency did the designing: the pending state names
+  what it's waiting on ("haiku · separate process") instead of showing a bare spinner, the picker
+  marks which tools spend quota, and every result carries a usage footnote that warns on a cold
+  start — so an `OneShotConfiguration` regression shows up in the UI, not only in the suite. No
+  tests: this is all `@MainActor` UI code and the test target is the headless package; the
+  registry's unknown-id filtering is the piece worth extracting and testing.)*
 - **File path picker** — `NSOpenPanel`, plus a fuzzy in-app finder; inject path into composer or copy.
+  *(Still to build as of 2026-08-09.)*
 - **Project switcher** — sets the subprocess `cwd`, tracks recents, shows git branch + dirty state.
+  *(Still to build as of 2026-08-09. The sidebar already routes its working directory through a
+  `\.sidebarWorkingDirectory` environment value rather than capturing it, specifically so this can
+  change it at runtime without leaving tools pointed at a stale directory.)*
 
 ### Phase 5 — Showpieces
 

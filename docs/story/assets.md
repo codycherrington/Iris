@@ -23,6 +23,10 @@ moment is gone once it happens uncaptured.
 - [x] **`--json-schema` as a forced tool call** (2026-08-09) — the `StructuredOutput` `tool_use`
   block and its `"Structured output provided successfully"` `tool_result`, in
   `Fixtures/oneshot_structured.ndjson`. Pure text, nothing to re-shoot.
+- [x] **"Fifteen out of ten"** (2026-08-09) — `"score":15` against a `{"type":"integer"}` field
+  described in prose as 1–10, in `Fixtures/oneshot_structured.ndjson`. The *payload* is captured
+  and permanent. The **UI rendering a green 15/10 is not captured**, and it expires the moment
+  someone adds `minimum`/`maximum` to the schema — see the expiring list below.
 
 ## Expiring — capture on first occurrence, gone otherwise
 - [ ] **First streamed token rendering in the SwiftUI UI** (Phase 2)
@@ -68,6 +72,25 @@ moment is gone once it happens uncaptured.
   long enough to *feel* on camera, which is the point: the table states it, the footage sells
   it. Fully reproducible, nothing expiring, but shoot the wall clock rather than trusting
   `duration_ms` — it under-reports by the ~2 s of process spawn.
+- [ ] **A green `15/10` in the prompt improver** (2026-08-09) — ⚠️ **expiring, and cheaply.** The
+  score field has no `minimum`/`maximum`, so the model can return 15, and `scoreTint` sends
+  anything ≥ 7 to green. It renders as a confident green **15/10**. The fixture proves the payload
+  is real; the *screenshot of the UI stating it* is the shareable artifact, and it disappears the
+  moment the schema is tightened (which it should be). Reproduce by running the prompt improver on
+  a deliberately terrible prompt until a >10 score comes back, and screenshot immediately. Pair
+  with the schema line on screen for the "a schema is a constraint, a description is a request"
+  beat.
+- [ ] **The sidebar's nine seconds, unedited** (2026-08-09) — click **Check** on a real query and
+  hold the entire wait: the `haiku · separate process` pending row with Cancel beside it, then the
+  result plus its usage footnote. Fully reproducible, nothing expiring, but it must be shot as a
+  single unbroken take — the discomfort is the content, exactly like the empty-screen beat. Shoot
+  the wall clock in frame; `duration_ms` under-reports by the ~2 s of process spawn.
+- [~] **The usage footnote going amber on a forced cold start** (2026-08-09) — **restageable by
+  design**, and the strongest single frame for "put the guard where the user will see it". Loosen
+  one strip flag in `OneShotConfiguration` locally, run a tool, and the footnote comes back with
+  `cold start` in amber under a result that took ~30 s instead of ~9 s. Does not exist as a
+  recording. Note this is the *first* asset in the project that was designed to be restageable
+  before it was needed — the pattern at the bottom of this file finally applied prospectively.
 - [ ] **Iris editing its own `persona.json`, live** (Phase 4, 2026-08-08). Happened, uncaptured
   — but **fully reproducible**, unlike the two above: ask the agent to change its own persona
   and it does it again. Not expiring. Shoot it properly rather than settling for a rerun done
@@ -96,6 +119,14 @@ moment is gone once it happens uncaptured.
   `glassEffectUnion(id: "tools-pending")`. **Reproducible by reverting two values** (see
   `61a5b01`). Worth staging: it's the before/after that makes the fusion lesson land visually
   instead of verbally.
+- [ ] **The sidebar rail sliding in on ⌘⌥S** (2026-08-09) — `.move(edge: .trailing)` combined with
+  opacity, four glass cards stacked with fusion at 0 so they read as separate panels. Good short
+  B-roll for the sidebar section and it doubles as a Liquid Glass shot. Shoot with the rail
+  toggling a few times; the window's minimum width jumps 640 → 940 when it opens, which is
+  visible if the window is near its floor.
+- [ ] **The tool picker, with the amber "uses quota" chips** (2026-08-09) — hold long enough that
+  the blurbs are readable. This is the screen that carries "sidebar calls draw from the same pool
+  as your conversation" without any narration.
 - [ ] Subagent tree building live during a parallel fan-out
 
 ## Stills / diagrams
@@ -136,3 +167,8 @@ moment is gone once it happens uncaptured.
   that re-triggers it were written down at fix time rather than reconstructed later. That is the
   cheapest possible insurance and it costs one line in the devlog. Do it every time — three
   losses in three days is a pattern, not bad luck.
+- **Applied prospectively (2026-08-09, afternoon):** the cold-start footnote and the 15/10 render
+  were both logged as capture targets *with their reproduction steps* on the day they shipped,
+  before either was needed or fixed. The 15/10 one has a real expiry — tightening the schema is
+  the correct next change and it destroys the shot. First time this list got ahead of the loss
+  instead of recording it afterwards.

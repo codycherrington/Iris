@@ -260,6 +260,47 @@ match the experience. Phase 2: 43 ms of dispatch, and "it felt like a stall for 
 Now: 7 s self-reported, 9 s lived. **Both times the honest number was the one the instrument
 wasn't reporting.** Every sidebar tool ships with a pending state because of it.
 
+## Nine seconds made us design differently
+
+*(2026-08-09, afternoon. This is the payoff for both measurement sections above — they're about
+getting an honest number; this is about what the number is **for**. Place it right after "Nine
+seconds, again", which it completes.)*
+
+Every previous measurement in this piece ended in a verdict: go / no-go, ship / don't, the plan
+was wrong. This one didn't. Nine seconds per sidebar click isn't optimisable — it's a process
+spawn plus a model round-trip, and stripping the launch had already taken it from 32 s to 9. So it
+got treated as a **material property of the component**, and the sidebar was drawn around it.
+
+Four decisions, all traceable to that one number:
+
+1. **The pending state names what it's waiting on.** Not a spinner — `haiku · separate process`,
+   next to a Cancel button, for the entire nine seconds. At 300 ms a spinner means "working". At
+   nine seconds a bare spinner means "hung", and the user's next thought is *have I wedged my
+   conversation?* The label answers both questions before they're asked: it's the cheap model, and
+   it isn't your conversation.
+2. **Notes — the tool with no model call — was built first, on purpose.** It proved the protocol,
+   the registry, the persistence and the panel chrome with none of the latency in the loop. Every
+   bug found while building it was unambiguously a panel bug, because there was nothing else it
+   could be.
+3. **The tool picker labels which tools spend quota.** Because they draw from the same five-hour
+   pool as the conversation, and that belongs at the moment you add a tool, not in a doc.
+4. **Every result carries a usage footnote** — model, tokens, duration, and an amber "cold start"
+   warning.
+
+That last one is the best small idea in the project:
+
+> The cost model is defended by three tests and a live probe. All of them run when someone
+> chooses to run them. The footnote makes the same regression visible **in the app, to the user,
+> on the next click.** If a strip flag ever stops working, "cold start" shows up in amber under a
+> result that took thirty seconds instead of nine.
+
+**The sidebar reports on its own cost.** A CI guard tells a developer, eventually. A UI element
+tells whoever is holding the app, immediately.
+
+Honest footnote for the writeup: the amber is currently keyed to cold start only. A call that
+escalates off Haiku shows its model name in plain text — visible, not flagged. Two lines from
+being right, and written down as a loose end rather than described as done.
+
 ## A test whose job is to defend a decision
 
 Nice small detail for the testing section. Most of the new tests aren't correctness tests at
@@ -272,6 +313,27 @@ clutter, and the cost of cleaning it up is completely invisible until the sideba
 **Sometimes the thing a test protects isn't behaviour, it's a decision — from a future person's
 good intentions, including your own.**
 
+## Two smaller notes from the sidebar build
+
+*(2026-08-09. Both short. Use whichever fits; the second is the better one.)*
+
+**The idiomatic answer was the wrong one.** Swift's instinct says a tool is a value — a
+description of a tool, a struct. That holds right up until you hide one. Tools carry draft text
+mid-typing, an in-flight call, a last result, and all of it has to survive being collapsed,
+reordered or hidden. A struct pushes that into an external store keyed by tool id: the same state,
+in a worse place, with a mapping to keep honest by hand. So `SidebarTool` is class-bound
+(`AnyObject`), instances live for the app's lifetime, and hiding a tool removes an id from a list
+rather than deallocating anything. *Reach for a value type until state has a lifecycle; then
+stop.*
+
+**Fifteen out of ten.** The prompt improver returns a 1–10 score. The captured fixture — real
+output, committed — contains `"score":15`. The schema said `{"type":"integer"}` with no `minimum`
+or `maximum`, so the model gave a perfectly valid integer, and the UI's colour ramp sends anything
+≥ 7 to green. Nothing crashed and nothing was caught; the panel just stated something absurd with
+total composure. A nice, concrete version of a general point: **a structured-output schema is the
+only constraint the model is actually held to — prose in a description is a request.** Still
+unfixed as of `63d6b70`, and written down with the evidence rather than quietly patched.
+
 ## Results
 
 Phase 2's gate: **PASS** — 43 ms dispatch with the full glass UI attached, against 7–20 ms
@@ -280,9 +342,10 @@ Full numbers in `docs/runs/2026-08-08-phase2-perf-gate.md`. Phases 1–3 closed 
 
 TODO — still open: whether Iris became the daily driver. **Be honest if it didn't.** Also
 worth re-running the head-to-head once Phase 4's sidebar tools land, since those spawn extra
-short-lived processes and are the likeliest thing to regress dispatch. *(2026-08-09: the runner
-for those exists and is measured — ~9 s wall clock per call, 0 cache-creation tokens — but no
-tool uses it yet, so the re-run is still pending. 35/35 tests.)*
+short-lived processes and are the likeliest thing to regress dispatch. *(2026-08-09, updated: the
+tools now exist — `63d6b70` shipped the tool system and all four — so the re-run is finally
+possible and is the next measurement owed. 37/37 tests. Phase 4 is persona wizard + sidebar done,
+file picker and project switcher remaining.)*
 
 ## Lessons
 
@@ -295,6 +358,17 @@ tool uses it yet, so the re-run is still pending. 35/35 tests.)*
   often costs the other.
 - **A green test suite can be green in a dimension it cannot observe.** Fixtures test protocols,
   not processes. 35/35 passing while every timeout was a guaranteed crash.
+- **A measured latency you can't remove becomes a design input.** Nine seconds per sidebar call
+  isn't a bug to fix; it's a material property, and it produced the pending label, the quota chip
+  and the build order.
+- **Put the regression guard where the user will see it.** Tests catch a cost regression when
+  someone runs them; a usage footnote catches it on the next click.
+- **Build the boring component first.** The tool that makes no model call proved the whole panel
+  with none of the latency in the way.
+- **Reach for a value type until the state has a lifecycle.** Then stop, and let the thing be an
+  object.
+- **A schema is a constraint; a description is a request.** `{"type":"integer"}` and "1-10" in
+  prose got a 15 back.
 - **Optimize the resource that's actually scarce.** On a subscription the dollar figure is an
   estimate of a bill nobody sends; quota is the real constraint, and it's shared.
 - **A number can be correct and still certify the wrong thing.** 43 ms of dispatch and "it felt

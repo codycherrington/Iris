@@ -168,6 +168,52 @@ Optional 15-second tag if the edit has room, because it's a nice bit of type des
 made the error case `noResult(exitCode: Int32?)`. The `?` is the API finally admitting there's a
 state where the exit code doesn't exist yet.
 
+## Nine seconds made me design it differently (new — place immediately after the crash section)
+*(2026-08-09 afternoon, `63d6b70`. Budget ~2:00. This is the section that pays off the two
+measurement beats before it — they're about getting an honest number, this is about what the
+number is for. It's also the most visual of the three, because the sidebar is on screen.)*
+
+Open on the sidebar, on camera, clicking **Check** on a real query. Then **do not cut**. Hold the
+whole nine seconds. Let it be uncomfortable — that's the entire setup, and it's the same trick as
+the empty-screen beat earlier, deliberately rhyming.
+
+While it runs, hold on the pending row: `haiku · separate process`, with Cancel beside it.
+Voiceover, one line:
+
+> **"Nine seconds isn't a bug I can fix. It's a process spawn plus a round-trip. So I stopped
+> treating it as a performance problem and started treating it as a material."**
+
+Then the four consequences, quick cuts, one line each:
+
+1. **The pending state says what it's waiting on.** At 300 ms a spinner means "working". At nine
+   seconds it means "hung" — and the user's real question is *did I break my conversation?* The
+   label answers it: cheap model, separate process.
+2. **I built the tool with no model call first.** Show Notes. It proved the panel, the registry
+   and the persistence with none of the latency in the loop. Boring on purpose.
+3. **The picker says which tools spend quota.** Callback to the previous section — same pool as
+   the conversation. Show the amber "uses quota" chip appearing next to a tool as it's added.
+4. **Every result shows what it drew.** Model, tokens, seconds.
+
+Land on number four, because it's the actual idea:
+
+> **"There are three tests defending this cost model. They run when I run them. That footnote
+> runs when *anyone* clicks. If a flag ever stops working, the sidebar tells on itself."**
+
+Optional 20-second tag, and it's a good one if the runtime allows: **restage the regression.**
+Loosen one strip flag locally, click, and show the footnote come back amber with "cold start"
+under a result that took thirty seconds. That single shot is the whole argument for putting a
+guard in the UI instead of only in CI.
+
+## Optional short: fifteen out of ten
+*(30–45 s. Standalone clip, works on its own, no context needed.)*
+
+Show the schema field: `{"type":"integer"}`. Show the prompt asking for a 1–10 score. Then the
+real captured output, big: `"score": 15`. Then the UI rendering a confident green **15/10**.
+
+One line: **"A schema is a constraint. A description is a request."** Nothing crashed, nothing was
+caught, and the panel stated something absurd with total composure. Still unfixed at the time of
+shooting, which is the honest version.
+
 ## The verdict (21:30–23:30)
 Head-to-head against the terminal — the numbers are in now (43 ms, gate passed 2026-08-08).
 Did it become the daily driver? **Answer honestly.** TODO — still open.
@@ -181,3 +227,7 @@ Lessons, repo link. Note it's an independent project, not an Anthropic product.
 - Runtime is drifting past 20 minutes. If it has to be cut, cut *Glass* down and keep
   **"fast but felt broken"** and **"the persona that edits itself"** — those two are the
   beats nobody else has.
+- **Three beats now rhyme deliberately** (2026-08-08 empty screen · 2026-08-09 self-reported vs
+  lived latency · 2026-08-09 nine seconds as a design input). Sequence them in that order and the
+  through-line writes itself: *the instrument, the honest number, and what you build with it.*
+  Each one holds an uncomfortable pause on screen; don't let the edit rescue any of them.

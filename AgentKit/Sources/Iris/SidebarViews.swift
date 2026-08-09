@@ -22,7 +22,7 @@ struct SidebarPanel: View {
                     // Each card is its own glass shape; fusion stays at 0 so stacked tools
                     // read as separate panels rather than welding into one slab — the same
                     // problem the transcript hit with message bubbles.
-                    GlassEffectContainer(spacing: 0) {
+                    GlassEffectContainer(spacing: Tok.Fusion.sidebar) {
                         VStack(spacing: Tok.Space.snug) {
                             ForEach(registry.enabledTools, id: \.id) { tool in
                                 SidebarToolCard(
@@ -321,13 +321,26 @@ struct OneShotToolBody<Output: StructuredOutput, Result: View>: View {
 struct UsageFootnote: View {
     let usage: OneShotUsage
 
+    /// Two independent ways a sidebar call can go wrong, and they don't imply each other: a
+    /// call can escalate off Haiku without paying a cold start, and vice versa. Tinting only
+    /// on cold start would have left escalation merely *visible* rather than flagged, which
+    /// is the failure this footnote exists to catch.
+    private var escalated: Bool {
+        guard let model = usage.model else { return false }
+        return !model.contains("haiku")
+    }
+
     var body: some View {
         HStack(spacing: Tok.Space.tight) {
             Text(usage.model.map(shortModel) ?? "?")
-                .foregroundStyle(usage.didPayColdStart ? Tok.Palette.warn : .secondary)
+                .foregroundStyle(escalated ? Tok.Palette.danger : .secondary)
+                .help(escalated
+                      ? "Sidebar tools are meant to run on Haiku — this one didn't."
+                      : "")
             Text("\(usage.inputTokens + usage.outputTokens) tok")
             if let ms = usage.durationMS {
-                Text("\(ms / 1000)s")
+                // Rounded, not truncated: integer division rendered 9,900 ms as "9s".
+                Text(String(format: "%.1fs", Double(ms) / 1000))
             }
             if usage.didPayColdStart {
                 Text("cold start")
@@ -360,12 +373,18 @@ struct PromptImproverToolView: View {
         ) { critique, _ in
             VStack(alignment: .leading, spacing: Tok.Space.tight) {
                 HStack(spacing: Tok.Space.tight) {
-                    Text("\(critique.score)/10")
+                    Text("\(critique.clampedScore)/10")
                         .font(Tok.TypeScale.title)
-                        .foregroundStyle(scoreTint(critique.score))
+                        .foregroundStyle(scoreTint(critique.clampedScore))
                     Text("\(critique.issues.count) issue\(critique.issues.count == 1 ? "" : "s")")
                         .font(Tok.TypeScale.label)
                         .foregroundStyle(.secondary)
+                    if critique.scoreOutOfRange {
+                        Text("model said \(critique.score)")
+                            .font(Tok.TypeScale.label)
+                            .foregroundStyle(Tok.Palette.warn)
+                            .help("Outside the schema's 1–10 bounds — the constraint isn't holding.")
+                    }
                 }
 
                 ForEach(critique.issues, id: \.self) { issue in

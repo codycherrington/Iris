@@ -20,10 +20,10 @@ that's a bug at the top of the list.
 | Phase | What | State |
 |---|---|---|
 | 0 | Spike: auth, streaming, perf, permissions | ✅ **GO** — see `docs/devlog/2026-08-07-inception.md` |
-| 1 | `AgentKit` headless core | ✅ bridge, decoder, one-shot runner, 35 tests |
+| 1 | `AgentKit` headless core | ✅ bridge, decoder, one-shot runner, 37 tests |
 | 2 | Minimal chat UI — perf gate | ✅ **PASS** — see `docs/runs/2026-08-08-phase2-perf-gate.md` |
 | 3 | Liquid Glass design system | ✅ dark theme, glass transcript, composer |
-| 4 | Persona wizard, sidebars, file picker, project switcher | 🟡 persona wizard done (ADR-007); sidebar *runner* done (ADR-008); the four tools, file picker, switcher next |
+| 4 | Persona wizard, sidebars, file picker, project switcher | 🟡 persona wizard (ADR-007), sidebar runner (ADR-008) and the tool system + four tools (ADR-009) done; file picker and project switcher next |
 | 5 | Subagent tree, session library, permission UI | ⬜ |
 
 The authoritative design is **`docs/plan.md`**. Read the relevant phase before implementing.
@@ -60,6 +60,12 @@ it inherits nothing and rebuilds everything. Same prompt, two launches:
 tests plus `make harness ARGS="-s"` exist to keep them there. On subscription auth nothing is
 billed — the shared resource is **quota**, so a chatty sidebar can rate-limit the main session.
 See `docs/research/one-shot-cost-model.md` and ADR-008.
+
+Even stripped, a click lands around **9 s** — ~7.2 s of model time plus ~2 s of process spawn the
+CLI's own `duration_ms` doesn't count. That number designed the panel (ADR-009): the pending state
+says *"haiku · separate process"* rather than showing a bare spinner, the tool picker marks which
+tools spend quota, and every result carries a usage footnote that warns on a cold start — so a
+cost regression is visible in the app, not just in the test suite.
 
 ## Architecture
 
