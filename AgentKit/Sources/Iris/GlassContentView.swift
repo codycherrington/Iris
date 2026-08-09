@@ -1,9 +1,12 @@
+import AgentKit
 import AppKit
 import SwiftUI
 
 struct GlassContentView: View {
     @State private var personas = PersonaStore.shared
-    @State private var model = SessionModel(persona: PersonaStore.shared.persona)
+    @State private var sessionSettings = SessionSettingsStore.shared
+    @State private var model = SessionModel(persona: PersonaStore.shared.persona,
+                                            settings: SessionSettingsStore.shared.settings)
     @State private var registry = SidebarRegistry.shared
     @State private var draft = ""
     @State private var showingPersona = false
@@ -16,32 +19,42 @@ struct GlassContentView: View {
         ZStack {
             AuroraBackdrop()
 
-            HStack(spacing: 0) {
-                VStack(spacing: 0) {
+            VStack(spacing: 0) {
+                // The rail sits beside the *transcript only*, not beside the whole column.
+                // Wrapping the composer and status bar too would shove them sideways every
+                // time the panel opens, so the thing you're typing into would jump — and
+                // the chrome at the bottom has no reason to yield space to a tool panel.
+                HStack(spacing: 0) {
                     transcript
-                    composer
-                    GlassStatusBar(stats: model.stats, isBusy: model.isBusy,
-                                   directory: model.workingDirectory,
-                                   assistantName: model.persona.assistantName,
-                                   sidebarShowing: showingSidebar,
-                                   namespace: glass,
-                                   onPickDirectory: pickDirectory,
-                                   onEditPersona: {
-                                       // Iris may have edited the file itself since launch.
-                                       personas.reload()
-                                       showingPersona = true
-                                   },
-                                   onToggleSidebar: toggleSidebar)
+
+                    if showingSidebar {
+                        SidebarPanel(registry: registry,
+                                     workingDirectory: model.workingDirectory,
+                                     onClose: toggleSidebar)
+                            // Slides in from the edge it lives on; opacity alone made it
+                            // appear to materialise on top of the transcript.
+                            .transition(.move(edge: .trailing).combined(with: .opacity))
+                    }
                 }
 
-                if showingSidebar {
-                    SidebarPanel(registry: registry,
-                                 workingDirectory: model.workingDirectory,
-                                 onClose: toggleSidebar)
-                        // Slides in from the edge it lives on; opacity alone made it appear
-                        // to materialise on top of the transcript.
-                        .transition(.move(edge: .trailing).combined(with: .opacity))
-                }
+                composer
+                GlassStatusBar(stats: model.stats, isBusy: model.isBusy,
+                               directory: model.workingDirectory,
+                               assistantName: model.persona.assistantName,
+                               sidebarShowing: showingSidebar,
+                               settings: model.settings,
+                               namespace: glass,
+                               onPickDirectory: pickDirectory,
+                               onEditPersona: {
+                                   // Iris may have edited the file itself since launch.
+                                   personas.reload()
+                                   showingPersona = true
+                               },
+                               onToggleSidebar: toggleSidebar,
+                               onApplySettings: { next in
+                                   sessionSettings.save(next)
+                                   Task { await model.applySettings(next) }
+                               })
             }
         }
         // Wider floor when the rail is out: 640 minus a 320pt panel leaves the transcript
@@ -250,8 +263,7 @@ struct SendButton: View {
                 .offset(x: isBusy ? 0 : -1, y: isBusy ? 0 : -1)
                 .frame(width: 42, height: 42)
         }
-        .buttonStyle(.plain)
-        .contentShape(.circle)
+        .buttonStyle(.glassCircle)
         .glassEffect(Tok.Surface.accentInteractive(tint.opacity(0.8)), in: .circle)
         .glassEffectID(GlassID.sendButton, in: namespace)
         .scaleEffect(hasText || isBusy ? 1.0 : 0.9)
@@ -356,10 +368,14 @@ struct GlassStatusBar: View {
     let directory: URL
     let assistantName: String
     let sidebarShowing: Bool
+    let settings: SessionSettings
     let namespace: Namespace.ID
     let onPickDirectory: () -> Void
     let onEditPersona: () -> Void
     let onToggleSidebar: () -> Void
+    let onApplySettings: (SessionSettings) -> Void
+
+    @State private var showingModelPicker = false
 
     var body: some View {
         GlassEffectContainer(spacing: Tok.Fusion.status) {
@@ -372,7 +388,7 @@ struct GlassStatusBar: View {
                     .padding(.horizontal, Tok.Space.snug)
                     .padding(.vertical, 5)
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.glassChip)
                 .glassEffect(Tok.Surface.interactive, in: .capsule)
                 .help(directory.path)
 
@@ -384,29 +400,49 @@ struct GlassStatusBar: View {
                     .padding(.horizontal, Tok.Space.snug)
                     .padding(.vertical, 5)
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.glassChip)
                 .glassEffect(Tok.Surface.interactive, in: .capsule)
                 .help("Edit persona — restarts the session")
 
                 // Green means running on the subscription. The one indicator that must never
                 // be subtle — and must never imply API billing before it has any data.
-                HStack(spacing: 4) {
-                    Circle()
-                        .fill(connectionTint)
-                        .frame(width: 5, height: 5)
-                        .opacity(stats.connection == .starting ? 0.45 : 1)
-                    Text(connectionLabel)
-                    if stats.connection == .ready {
-                        Text(stats.model).foregroundStyle(.secondary)
+                //
+                // Model and effort come from the *configuration*, so they're known at launch
+                // and shown immediately. Auth isn't: `system/init` arrives per turn, so the
+                // dot stays grey until the first message proves it. Showing a real model name
+                // beside a hedged auth state is the honest version of what used to be an
+                // uninformative "starting… —".
+                Button { showingModelPicker = true } label: {
+                    HStack(spacing: 4) {
+                        Circle()
+                            .fill(connectionTint)
+                            .frame(width: 5, height: 5)
+                            .opacity(stats.connection == .starting ? 0.45 : 1)
+                        Text(connectionLabel)
+                        Text(stats.configuredModel).foregroundStyle(.secondary)
+                        Text(stats.configuredEffort).foregroundStyle(.tertiary)
+                        if let drift = modelDrift {
+                            Image(systemName: "exclamationmark.triangle.fill")
+                                .font(.system(size: 8))
+                                .foregroundStyle(Tok.Palette.warn)
+                                .help(drift)
+                        }
+                        Image(systemName: "chevron.up.chevron.down")
+                            .font(.system(size: 7, weight: .semibold))
+                            .foregroundStyle(.tertiary)
                     }
+                    // Without this the model id wraps to two lines inside the chip.
+                    .lineLimit(1)
+                    .fixedSize()
+                    .padding(.horizontal, Tok.Space.snug)
+                    .padding(.vertical, 5)
                 }
-                // Without this the model id wraps to two lines inside the chip.
-                .lineLimit(1)
-                .fixedSize()
-                .padding(.horizontal, Tok.Space.snug)
-                .padding(.vertical, 5)
-                .glassEffect(Tok.Surface.panel, in: .capsule)
+                .buttonStyle(.glassChip)
+                .glassEffect(Tok.Surface.interactive, in: .capsule)
                 .help(connectionHelp)
+                .popover(isPresented: $showingModelPicker, arrowEdge: .top) {
+                    ModelEffortPicker(settings: settings, onApply: onApplySettings)
+                }
 
                 if let quota = stats.quotaStatus {
                     Text(quotaLabel(quota))
@@ -438,7 +474,7 @@ struct GlassStatusBar: View {
                         .padding(.horizontal, Tok.Space.snug)
                         .padding(.vertical, 5)
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.glassChip)
                 .glassEffect(Tok.Surface.interactive, in: .capsule)
                 .help("Tools (⌘⌥S)")
             }
@@ -458,21 +494,35 @@ struct GlassStatusBar: View {
 
     private var connectionLabel: String {
         switch stats.connection {
-        // Honest: nothing is known until the first turn, so don't claim anything.
-        case .starting: return "starting…"
+        // Honest: auth isn't known until the first turn, so don't claim anything. The model
+        // beside it is a launch argument, so it can be stated with confidence.
+        case .starting: return "checking…"
         case .ready: return "subscription"
         case .degraded: return stats.authSource
         }
     }
 
+    /// Set when the model that actually ran isn't the one that was asked for — a fallback
+    /// kicked in, or an alias resolved somewhere unexpected. Silent disagreement between
+    /// "what I selected" and "what I'm being charged for" is exactly the kind of thing this
+    /// app exists to make visible.
+    private var modelDrift: String? {
+        guard stats.connection == .ready, stats.model != "—" else { return nil }
+        let reported = ModelChoice.label(forReportedModel: stats.model)
+        guard reported != stats.configuredModel else { return nil }
+        return "Configured \(stats.configuredModel), but the session reported \(stats.model)."
+    }
+
     private var connectionHelp: String {
+        let tail = "  ·  Click to change model or effort."
         switch stats.connection {
         case .starting:
-            return "Session details arrive with your first message — system/init is emitted per turn."
+            return "Auth confirms on your first message — system/init is emitted per turn, "
+                + "not at launch." + tail
         case .ready:
-            return "apiKeySource = none — running on your Claude subscription."
+            return "apiKeySource = none — running on your Claude subscription." + tail
         case .degraded:
-            return "apiKeySource = \(stats.authSource) — NOT the subscription path."
+            return "apiKeySource = \(stats.authSource) — NOT the subscription path." + tail
         }
     }
 
@@ -487,6 +537,94 @@ struct GlassStatusBar: View {
         guard let resets = stats.quotaResetsAt else { return status }
         let mins = max(0, Int(resets.timeIntervalSinceNow / 60))
         return mins >= 60 ? "quota \(mins / 60)h\(mins % 60)m" : "quota \(mins)m"
+    }
+}
+
+// MARK: - Model & effort
+
+/// Picks the model and reasoning effort for the session.
+///
+/// Both are launch arguments, so choosing either restarts the session and clears the
+/// transcript. That's stated in the footer rather than hidden behind a confirmation — the
+/// persona wizard makes the same trade, and being told once is better than a dialog every
+/// time.
+struct ModelEffortPicker: View {
+    let settings: SessionSettings
+    let onApply: (SessionSettings) -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: Tok.Space.snug) {
+            section("Model") {
+                ForEach(ModelChoice.all) { choice in
+                    row(title: choice.label,
+                        note: choice.note,
+                        selected: settings.model == choice.id) {
+                        var next = settings
+                        next.model = choice.id
+                        onApply(next)
+                    }
+                }
+            }
+
+            Divider().opacity(0.3)
+
+            section("Effort") {
+                ForEach(AgentConfiguration.Effort.allCases, id: \.self) { level in
+                    row(title: level.rawValue,
+                        note: level.note,
+                        selected: settings.effort == level) {
+                        var next = settings
+                        next.effort = level
+                        onApply(next)
+                    }
+                }
+            }
+
+            Text("Changing either restarts the session and clears the transcript.")
+                .font(.system(size: 10))
+                .foregroundStyle(.tertiary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(Tok.Space.base)
+        .frame(width: 300)
+    }
+
+    @ViewBuilder
+    private func section(_ title: String,
+                         @ViewBuilder content: () -> some View) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(title.uppercased())
+                .font(.system(size: 9, weight: .semibold))
+                .foregroundStyle(.tertiary)
+                .padding(.bottom, 2)
+            content()
+        }
+    }
+
+    private func row(title: String, note: String, selected: Bool,
+                     action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(alignment: .top, spacing: Tok.Space.tight) {
+                Image(systemName: selected ? "largecircle.fill.circle" : "circle")
+                    .font(.system(size: 10))
+                    // Explicit erasure: a ternary mixing a Color with a hierarchical style
+                    // has no common type for the compiler to land on.
+                    .foregroundStyle(selected
+                        ? AnyShapeStyle(Tok.Palette.agent) : AnyShapeStyle(.tertiary))
+                    .frame(width: 14)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(title).font(Tok.TypeScale.body)
+                    Text(note)
+                        .font(.system(size: 10))
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                Spacer(minLength: 0)
+            }
+            .padding(.vertical, 3)
+            .contentShape(.rect)
+        }
+        .buttonStyle(.glassRow)
     }
 }
 

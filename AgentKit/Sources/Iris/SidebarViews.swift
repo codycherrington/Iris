@@ -54,7 +54,7 @@ struct SidebarPanel: View {
                     .font(.system(size: 10, weight: .semibold))
                     .frame(width: 22, height: 22)
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.glassCircle)
             .glassEffect(Tok.Surface.interactive, in: .circle)
             .help("Add a tool")
             .disabled(registry.availableTools.isEmpty)
@@ -64,7 +64,7 @@ struct SidebarPanel: View {
                     .font(.system(size: 10, weight: .semibold))
                     .frame(width: 22, height: 22)
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.glassCircle)
             .glassEffect(Tok.Surface.interactive, in: .circle)
             .help("Hide tools (⌘⌥S)")
         }
@@ -119,7 +119,7 @@ struct SidebarToolPicker: View {
                     }
                     .contentShape(.rect)
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.glassRow)
             }
             if registry.availableTools.isEmpty {
                 Text("Everything's already showing.")
@@ -169,14 +169,14 @@ struct SidebarToolCard: View {
                         .foregroundStyle(.secondary)
                         .frame(width: 16, height: 16)
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.glassCircle)
                 Button(action: onRemove) {
                     Image(systemName: "xmark")
                         .font(.system(size: 8, weight: .semibold))
                         .foregroundStyle(.secondary)
                         .frame(width: 16, height: 16)
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.glassCircle)
                 .help("Remove \(tool.title)")
             }
             .padding(.horizontal, Tok.Space.snug)
@@ -507,7 +507,7 @@ struct CopyButton: View {
                 .foregroundStyle(copied ? Tok.Palette.approve : .secondary)
                 .frame(width: 18, height: 18)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.glassCircle)
         .help("Copy")
     }
 }

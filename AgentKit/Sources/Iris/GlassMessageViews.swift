@@ -178,7 +178,7 @@ struct ToolChip: View {
                 .padding(.horizontal, Tok.Space.snug)
                 .padding(.vertical, Tok.Space.tight)
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.glassChip)
             .glassEffect(
                 Tok.Surface.accentInteractive(state.tint.opacity(0.4)),
                 in: .rect(cornerRadius: Tok.Radius.chip)

@@ -63,12 +63,22 @@ public struct AgentConfiguration: Sendable {
         case dontAsk
     }
 
+    /// Reasoning budget for the session. The CLI's own vocabulary — don't invent levels.
+    public enum Effort: String, Sendable, CaseIterable {
+        case low, medium, high, xhigh, max
+    }
+
     public var executableURL: URL
     public var workingDirectory: URL
     public var sessionID: UUID
     public var permissionMode: PermissionMode
     public var allowedTools: [String]
     public var appendSystemPrompt: String?
+    /// Model alias (`sonnet`, `opus`, `haiku`, `fable`) or a full id. `nil` leaves the CLI's
+    /// own default in place; Iris always sets it so the status bar can name the model before
+    /// the first turn, rather than waiting for `system/init` to say what it turned out to be.
+    public var model: String?
+    public var effort: Effort?
     /// Needed to receive subagent text/thinking for the Phase 5 tree. Requires claude ≥ 2.1.211.
     public var forwardSubagentText: Bool
     /// Resume an existing session instead of starting a new one.
@@ -85,6 +95,8 @@ public struct AgentConfiguration: Sendable {
         permissionMode: PermissionMode = .default,
         allowedTools: [String] = [],
         appendSystemPrompt: String? = nil,
+        model: String? = nil,
+        effort: Effort? = nil,
         forwardSubagentText: Bool = false,
         resumeSessionID: String? = nil,
         forkSession: Bool = false,
@@ -96,6 +108,8 @@ public struct AgentConfiguration: Sendable {
         self.permissionMode = permissionMode
         self.allowedTools = allowedTools
         self.appendSystemPrompt = appendSystemPrompt
+        self.model = model
+        self.effort = effort
         self.forwardSubagentText = forwardSubagentText
         self.resumeSessionID = resumeSessionID
         self.forkSession = forkSession
@@ -130,6 +144,12 @@ public struct AgentConfiguration: Sendable {
         }
         if let prompt = appendSystemPrompt {
             args += ["--append-system-prompt", prompt]
+        }
+        if let model {
+            args += ["--model", model]
+        }
+        if let effort {
+            args += ["--effort", effort.rawValue]
         }
         if forwardSubagentText {
             args.append("--forward-subagent-text")

@@ -98,6 +98,9 @@ enum Tok {
         static let content = Animation.spring(response: 0.46, dampingFraction: 0.85)
         /// Continuous ambient loop (shimmer, breathing).
         static let ambient = Animation.easeInOut(duration: 2.4).repeatForever(autoreverses: true)
+        /// Button press feedback. Faster than `touch` — press response has to feel like the
+        /// control reacting to your finger, not animating afterwards.
+        static let press = Animation.spring(response: 0.16, dampingFraction: 0.7)
 
         /// Resolve an animation against Reduce Motion. Glass morphing is exactly the kind of
         /// motion that needs an honest reduced path, not a shortened one.
@@ -112,6 +115,62 @@ enum Tok {
         static let body = Font.system(size: 13.5)
         static let title = Font.system(size: 15, weight: .semibold)
     }
+}
+
+// MARK: - Controls
+
+/// The style for every control in Iris that sits on glass.
+///
+/// It exists because `.buttonStyle(.plain)` had two failures that compounded into "I have to
+/// click this three times":
+///
+/// 1. **Almost no hit area.** A `.plain` button whose label is an `Image` is hit-testable
+///    only where the glyph's *ink* is. Wrapping it in `.frame(width: 22, height: 22)` sizes
+///    the layout box but doesn't make the empty corners clickable, so a chevron in a 22pt
+///    box was a target roughly 8pt across with holes in it. `contentShape` applied to the
+///    label — inside the style, where it binds to the frame rather than to the glyph —
+///    claims the whole area.
+/// 2. **No pressed state.** `.plain` renders no feedback whatsoever on macOS. A click that
+///    landed looked exactly like a click that missed, which is what turns "I missed" into
+///    "this button is broken".
+///
+/// The two together are why the miss rate felt so much worse than it was: you couldn't tell
+/// a near-miss from a dead control, so you clicked again.
+struct GlassControlStyle<S: Shape>: ButtonStyle {
+    let shape: S
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.isEnabled) private var isEnabled
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .contentShape(shape)
+            .scaleEffect(configuration.isPressed && !reduceMotion ? 0.9 : 1)
+            // Opacity carries the press even under Reduce Motion, so the feedback never
+            // disappears entirely — it's the part doing the real work.
+            .opacity(pressOpacity(configuration.isPressed))
+            .animation(Tok.Motion.resolved(Tok.Motion.press, reduceMotion: reduceMotion),
+                       value: configuration.isPressed)
+    }
+
+    private func pressOpacity(_ pressed: Bool) -> Double {
+        if !isEnabled { return 0.4 }
+        return pressed ? 0.55 : 1
+    }
+}
+
+extension ButtonStyle where Self == GlassControlStyle<Circle> {
+    /// Round controls — the send button, the small icon buttons in panel headers.
+    static var glassCircle: Self { GlassControlStyle(shape: Circle()) }
+}
+
+extension ButtonStyle where Self == GlassControlStyle<Capsule> {
+    /// Status-bar chips.
+    static var glassChip: Self { GlassControlStyle(shape: Capsule()) }
+}
+
+extension ButtonStyle where Self == GlassControlStyle<Rectangle> {
+    /// Rows and anything rectangular — picker entries, list items.
+    static var glassRow: Self { GlassControlStyle(shape: Rectangle()) }
 }
 
 // MARK: - Namespaces

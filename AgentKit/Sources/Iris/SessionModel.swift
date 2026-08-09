@@ -40,6 +40,11 @@ struct SessionStats: Sendable {
     enum Connection: Sendable { case starting, ready, degraded }
 
     var connection: Connection = .starting
+    /// What the session is *configured* to run, known from launch. Distinct from `model`,
+    /// which is what `system/init` reported it actually ran — those can disagree (a fallback
+    /// model, an alias resolving somewhere unexpected) and the disagreement is worth seeing.
+    var configuredModel = "—"
+    var configuredEffort = "—"
     var model = "—"
     var authSource = "—"
     var isSubscription = false
@@ -67,14 +72,18 @@ final class SessionModel {
     /// Applied at process launch via `--append-system-prompt`, so changing it has to restart
     /// the session — there's no way to re-prompt a running process.
     private(set) var persona: Persona
+    /// Same constraint: `--model` and `--effort` are launch arguments.
+    private(set) var settings: SessionSettings
 
     private var bridge: AgentBridge?
     private var consumer: Task<Void, Never>?
 
     private static let directoryKey = "iris.workingDirectory"
 
-    init(workingDirectory: URL? = nil, persona: Persona = Persona()) {
+    init(workingDirectory: URL? = nil, persona: Persona = Persona(),
+         settings: SessionSettings = .default) {
         self.persona = persona
+        self.settings = settings
         // Remember the last folder so the app doesn't reopen in $HOME every launch — which
         // also means re-triggering macOS's Documents-access prompt each time.
         if let explicit = workingDirectory {
@@ -85,6 +94,10 @@ final class SessionModel {
         } else {
             self.workingDirectory = URL(fileURLWithPath: NSHomeDirectory())
         }
+        // After the stored properties: `stats` is one of them, and touching it earlier reads
+        // `self` before initialization is complete.
+        stats.configuredModel = ModelChoice.label(forReportedModel: settings.model)
+        stats.configuredEffort = settings.effort.rawValue
     }
 
     /// Swap the persona and relaunch. The system prompt is a launch argument, so an in-place
@@ -92,6 +105,17 @@ final class SessionModel {
     func applyPersona(_ persona: Persona) async {
         guard persona != self.persona else { return }
         self.persona = persona
+        await stop()
+        await start()
+    }
+
+    /// Swap model and/or effort and relaunch. Both are launch arguments, so this restarts
+    /// the session and clears the transcript — the same trade the persona makes.
+    func applySettings(_ settings: SessionSettings) async {
+        guard settings != self.settings else { return }
+        self.settings = settings
+        stats.configuredModel = ModelChoice.label(forReportedModel: settings.model)
+        stats.configuredEffort = settings.effort.rawValue
         await stop()
         await start()
     }
@@ -106,7 +130,9 @@ final class SessionModel {
         let bridge = AgentBridge(configuration: AgentConfiguration(
             workingDirectory: workingDirectory,
             permissionMode: .default,
-            appendSystemPrompt: persona.systemPrompt
+            appendSystemPrompt: persona.systemPrompt,
+            model: settings.model,
+            effort: settings.effort
         ))
         self.bridge = bridge
 

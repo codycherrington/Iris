@@ -62,10 +62,10 @@ if sidebarProbe {
         print(dim("  model            ") + (u.model ?? "?"))
         print(dim("  wall             ") + "\(wall)")
         print(dim("  duration_ms      ") + "\(u.durationMS ?? -1)")
-        print(dim("  in/out tokens    ") + "\(u.inputTokens ?? -1)/\(u.outputTokens ?? -1)")
+        print(dim("  in/out tokens    ") + "\(u.inputTokens)/\(u.outputTokens)")
         let cold = u.didPayColdStart
         print(dim("  cache creation   ")
-              + styled("\(u.cacheCreationTokens ?? -1)", cold ? "31" : "32")
+              + styled("\(u.cacheCreationTokens)", cold ? "31" : "32")
               + dim(cold ? "  ← cold start leaked back in" : "  (stripped launch holding)"))
         print(dim("  est. cost        ")
               + String(format: "$%.5f", u.estimatedCostUSD ?? 0)
