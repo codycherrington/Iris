@@ -101,6 +101,9 @@ This repo lives in iCloud Drive, so build artifacts are redirected outside it.
 ```bash
 make test     # run AgentKit tests against captured stream-json fixtures
 make build    # build AgentKit
+make run      # build and launch the app (debug)
+make install  # build release, sign, and install to /Applications
+make icon     # regenerate the app icon from the design tokens
 make help     # all targets
 ```
 

@@ -251,26 +251,36 @@ struct SendButton: View {
         return hasText ? Tok.Palette.agent : .gray
     }
 
+    /// The idle button is smaller, and that size change is expressed as a **frame** change
+    /// rather than `.scaleEffect`.
+    ///
+    /// It used to be `.scaleEffect(0.9)`, which pulled the arrow visibly off centre while
+    /// empty. Measured off Cody's screenshots: at scale 1.0 the glyph sits `(0.00, +0.50)pt`
+    /// from the circle's centre; under the 0.9 scale it sits `(+1.75, +2.25)pt`. Rendering
+    /// the glyph *alone* under the same scale shifts it only 0.06pt, so the glyph isn't what
+    /// moves — the arrow and the glass circle simply don't scale about the same point.
+    ///
+    /// Animating the frame keeps content and glass in one geometry, and leaves the resting
+    /// sizes on whole points so the stroke stays on the pixel grid. 42pt matches the
+    /// composer's row height.
+    private var side: CGFloat { hasText || isBusy ? 42 : 38 }
+
     var body: some View {
         Button(action: action) {
-            // 42pt matches the composer's row height so the pair reads as one row rather
-            // than a small dot beside a tall pill.
-            //
             // Centering is measured, not nudged: `CenteredSymbol` rasterizes the glyph
             // through SwiftUI's own renderer and offsets by the difference between its ink
-            // centre and the frame's. For both of these symbols that measures to exactly
-            // zero — which is why the old hand-tuned `-1, -1` had to go. It wasn't fixing
-            // an off-centre arrow, it was creating one.
+            // centre and the frame's. Both symbols measure to exactly zero at both sizes —
+            // which is why the old hand-tuned `-1, -1` had to go. It wasn't fixing an
+            // off-centre arrow, it was creating one.
             CenteredSymbol(name: isBusy ? "stop.fill" : "arrow.up",
-                           pointSize: 15, side: 42)
+                           pointSize: 15, side: side)
                 .foregroundStyle(.white)
         }
         .buttonStyle(.glassCircle)
         .glassEffect(Tok.Surface.accentInteractive(tint.opacity(0.8)), in: .circle)
         .glassEffectID(GlassID.sendButton, in: namespace)
-        .scaleEffect(hasText || isBusy ? 1.0 : 0.9)
         .animation(Tok.Motion.resolved(Tok.Motion.touch, reduceMotion: reduceMotion),
-                   value: hasText)
+                   value: side)
         .help(isBusy ? "Interrupt (Esc)" : "Send (⌘↵)")
     }
 }
