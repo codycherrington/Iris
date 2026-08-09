@@ -10,10 +10,14 @@ struct GlassContentView: View {
     @State private var registry = SidebarRegistry.shared
     @State private var draft = ""
     @State private var showingPersona = false
-    @State private var showingSidebar = false
-    @FocusState private var composerFocused: Bool
+    @State private var showingSidebar = SidebarRegistry.shared.layout.isVisible
     @Namespace private var glass
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    /// `Tok.TypeScale.body` as an `NSFont`, so the composer's line height comes from the
+    /// same typeface the transcript uses rather than from a number typed into a frame.
+    static let composerFont = NSFont.systemFont(ofSize: 13.5)
+    @State private var composerHeight = ComposerTextView.lineHeight(for: composerFont)
 
     var body: some View {
         ZStack {
@@ -113,6 +117,7 @@ struct GlassContentView: View {
 
     private func toggleSidebar() {
         showingSidebar.toggle()
+        registry.setVisible(showingSidebar)
     }
 
     // MARK: Transcript
@@ -130,8 +135,14 @@ struct GlassContentView: View {
                                 .padding(.top, 72)
                         }
                         ForEach(model.messages) { message in
-                            GlassMessageRow(message: message, namespace: glass)
-                                .id(message.id)
+                            GlassMessageRow(
+                                message: message,
+                                namespace: glass,
+                                isAnswerable: message.id == model.messages.last?.id
+                                    && !model.isBusy,
+                                onAnswer: { answer in Task { await model.send(answer) } }
+                            )
+                            .id(message.id)
                         }
                         Color.clear.frame(height: 1).id("bottom")
                     }
@@ -164,41 +175,32 @@ struct GlassContentView: View {
             // .center, not .bottom: the text editor is taller than the button, and bottom
             // alignment drags the button below the text baseline.
             HStack(alignment: .center, spacing: Tok.Space.base) {
-                TextEditor(text: $draft)
-                    .font(Tok.TypeScale.body)
-                    .scrollContentBackground(.hidden)
-                    // Kill TextEditor's built-in insets so the placeholder overlay and the
-                    // real caret share one origin — otherwise they sit a few points apart.
-                    .textEditorStyle(.plain)
-                    .contentMargins(.all, 0, for: .scrollContent)
-                    .frame(minHeight: 20, maxHeight: 132)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .focused($composerFocused)
-                    .overlay(alignment: .leading) {
-                        if draft.isEmpty {
-                            Text(model.isBusy ? "Esc to interrupt…" : "Message Iris…")
-                                .font(Tok.TypeScale.body)
-                                .foregroundStyle(.tertiary)
-                                // Clear the caret. Both sit at the text origin, so without
-                                // this the blinking cursor lands on top of the first glyph.
-                                .padding(.leading, 7)
-                                .allowsHitTesting(false)
-                        }
-                    }
-                    .onKeyPress(.return, phases: .down) { press in
-                        guard press.modifiers.contains(.command) else { return .ignored }
-                        submit()
-                        return .handled
-                    }
-                    .onKeyPress(.escape) {
-                        guard model.isBusy else { return .ignored }
+                ComposerTextView(
+                    text: $draft,
+                    height: $composerHeight,
+                    font: Self.composerFont,
+                    maxHeight: 132,
+                    onSubmit: submit,
+                    onEscape: {
+                        guard model.isBusy else { return }
                         Task { await model.interrupt() }
-                        return .handled
                     }
-                    .padding(.horizontal, Tok.Space.base + 2)
-                    .padding(.vertical, 11)
-                    .glassEffect(Tok.Surface.interactive, in: .capsule)
-                    .glassEffectID(GlassID.composer, in: glass)
+                )
+                .frame(height: composerHeight)
+                .overlay(alignment: .topLeading) {
+                    if draft.isEmpty {
+                        // No offset. The text view's insets are zeroed, so its first glyph
+                        // and this placeholder share an origin exactly.
+                        Text(model.isBusy ? "Esc to interrupt…" : "Message Iris…")
+                            .font(Tok.TypeScale.body)
+                            .foregroundStyle(.tertiary)
+                            .allowsHitTesting(false)
+                    }
+                }
+                .padding(.horizontal, Tok.Space.base + 2)
+                .padding(.vertical, 11)
+                .glassEffect(Tok.Surface.interactive, in: .capsule)
+                .glassEffectID(GlassID.composer, in: glass)
 
                 SendButton(isBusy: model.isBusy,
                            hasText: !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
@@ -208,7 +210,7 @@ struct GlassContentView: View {
             .padding(.horizontal, Tok.Space.loose)
             .padding(.vertical, Tok.Space.snug)
         }
-        .onAppear { composerFocused = true }
+        // Focus is taken by ComposerTextView itself when its NSView lands in a window.
     }
 
     private func submit() {
@@ -251,17 +253,17 @@ struct SendButton: View {
 
     var body: some View {
         Button(action: action) {
-            // A fixed square frame with the glyph centred in it.
-            // 42pt matches the text field's height (20 content + 11 padding top and bottom),
-            // so the pair reads as one row rather than a small dot beside a tall pill.
-            // arrow.up's ink is still offset down-and-right of its design box even at this
-            // size — that's inherent to the glyph, not something frame sizing fixes — so it
-            // keeps a small counter-nudge. stop.fill is symmetric and needs none.
-            Image(systemName: isBusy ? "stop.fill" : "arrow.up")
-                .font(.system(size: 15, weight: .semibold))
+            // 42pt matches the composer's row height so the pair reads as one row rather
+            // than a small dot beside a tall pill.
+            //
+            // Centering is measured, not nudged: `CenteredSymbol` rasterizes the glyph
+            // through SwiftUI's own renderer and offsets by the difference between its ink
+            // centre and the frame's. For both of these symbols that measures to exactly
+            // zero — which is why the old hand-tuned `-1, -1` had to go. It wasn't fixing
+            // an off-centre arrow, it was creating one.
+            CenteredSymbol(name: isBusy ? "stop.fill" : "arrow.up",
+                           pointSize: 15, side: 42)
                 .foregroundStyle(.white)
-                .offset(x: isBusy ? 0 : -1, y: isBusy ? 0 : -1)
-                .frame(width: 42, height: 42)
         }
         .buttonStyle(.glassCircle)
         .glassEffect(Tok.Surface.accentInteractive(tint.opacity(0.8)), in: .circle)

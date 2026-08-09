@@ -1,3 +1,4 @@
+import AgentKit
 import SwiftUI
 
 // MARK: - Message
@@ -5,6 +6,11 @@ import SwiftUI
 struct GlassMessageRow: View {
     let message: ChatMessage
     let namespace: Namespace.ID
+    /// True only for the newest message while the session is idle. A question card is
+    /// interactive exactly then — scrolling back to an old question and clicking it would
+    /// answer a turn that has long since moved on.
+    var isAnswerable = false
+    var onAnswer: (String) -> Void = { _ in }
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private var isUser: Bool { message.role == .user }
@@ -39,10 +45,13 @@ struct GlassMessageRow: View {
 
     @ViewBuilder
     private var contentBody: some View {
+        let parsed = message.parsed
         // Pulse only while there's genuinely nothing to show yet. Once text is actually
         // streaming, the growing text itself is the "alive" signal — a header badge pinned
         // above it just looks stuck once the bubble has grown well past it.
-        let isWaiting = message.isStreaming && message.text.isEmpty
+        // A message whose only content so far is a half-arrived question block counts as
+        // still waiting, since there's nothing to read yet.
+        let isWaiting = message.isStreaming && parsed.text.isEmpty && parsed.question == nil
         VStack(alignment: isUser ? .trailing : .leading, spacing: Tok.Space.tight) {
             HStack(spacing: Tok.Space.tight) {
                 if isUser {
@@ -72,15 +81,29 @@ struct GlassMessageRow: View {
                 }
             }
 
-            if message.text.isEmpty && message.isStreaming {
+            if parsed.text.isEmpty && message.isStreaming && parsed.question == nil {
                 // Nothing streamed yet — hold the shape so the glass doesn't pop in.
                 Text("…").font(Tok.TypeScale.body).foregroundStyle(.tertiary)
-            } else {
+            } else if !parsed.text.isEmpty {
                 // No maxWidth here: forcing .infinity stretched the bubble across the whole
                 // 620pt track, which made a right-aligned bubble still *look* left-aligned
                 // because its text sat at the far edge. Let it hug its content instead.
-                MarkdownText(raw: message.text)
+                MarkdownText(raw: parsed.text)
                     .multilineTextAlignment(.leading)
+            }
+
+            if parsed.isPending {
+                // The block is mid-stream. Say a question is coming rather than letting raw
+                // JSON scroll past one delta at a time.
+                Label("preparing a question…", systemImage: "questionmark.bubble")
+                    .font(Tok.TypeScale.label)
+                    .foregroundStyle(.tertiary)
+            }
+
+            if let question = parsed.question {
+                QuestionCard(question: question,
+                             isAnswerable: isAnswerable,
+                             onAnswer: onAnswer)
             }
         }
         .padding(.horizontal, Tok.Space.base)
@@ -122,6 +145,115 @@ extension View {
     /// Breathe while `isActive`; settle to full opacity when it clears.
     func breathing(_ isActive: Bool) -> some View {
         modifier(Breathing(isActive: isActive))
+    }
+}
+
+// MARK: - Question card
+
+/// Iris's question, rendered as controls.
+///
+/// Answering sends the chosen label back as an ordinary user turn — the same thing you'd
+/// have typed. That keeps the transcript honest: there's no hidden side channel, and the
+/// conversation reads correctly if you reopen it later or resume the session elsewhere.
+struct QuestionCard: View {
+    let question: AgentQuestion
+    let isAnswerable: Bool
+    let onAnswer: (String) -> Void
+
+    @State private var selected: Set<String> = []
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: Tok.Space.tight) {
+            Text(question.question)
+                .font(Tok.TypeScale.body.weight(.semibold))
+                .fixedSize(horizontal: false, vertical: true)
+
+            ForEach(question.options) { option in
+                optionRow(option)
+            }
+
+            if question.multiSelect {
+                HStack(spacing: Tok.Space.tight) {
+                    Button("Send \(selected.count) selected") {
+                        // Stable order: the options as written, not the order they were
+                        // clicked in.
+                        let ordered = question.options
+                            .map(\.label).filter(selected.contains)
+                        onAnswer(ordered.joined(separator: ", "))
+                    }
+                    .buttonStyle(.glassProminent)
+                    .tint(Tok.Palette.agent)
+                    .font(Tok.TypeScale.label)
+                    .disabled(selected.isEmpty || !isAnswerable)
+                    Spacer(minLength: 0)
+                }
+                .padding(.top, 2)
+            }
+
+            if !isAnswerable {
+                Text("Answered — or type anything to reply instead.")
+                    .font(.system(size: 10))
+                    .foregroundStyle(.tertiary)
+            }
+        }
+        .padding(Tok.Space.snug)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Tok.Palette.agent.opacity(0.06),
+                    in: .rect(cornerRadius: Tok.Radius.chip))
+        .overlay(
+            RoundedRectangle(cornerRadius: Tok.Radius.chip)
+                .strokeBorder(Tok.Palette.agent.opacity(isAnswerable ? 0.28 : 0.10),
+                              lineWidth: 1)
+        )
+        .padding(.top, Tok.Space.hair)
+    }
+
+    private func optionRow(_ option: AgentQuestion.Option) -> some View {
+        let isOn = selected.contains(option.label)
+        return Button {
+            if question.multiSelect {
+                if isOn { selected.remove(option.label) } else { selected.insert(option.label) }
+            } else {
+                onAnswer(option.label)
+            }
+        } label: {
+            HStack(alignment: .top, spacing: Tok.Space.tight) {
+                Image(systemName: marker(isOn: isOn))
+                    .font(.system(size: 11))
+                    .foregroundStyle(isOn ? AnyShapeStyle(Tok.Palette.agent)
+                                          : AnyShapeStyle(.tertiary))
+                    .frame(width: 15)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(option.label)
+                        .font(Tok.TypeScale.body)
+                        .fixedSize(horizontal: false, vertical: true)
+                    if let description = option.description, !description.isEmpty {
+                        Text(description)
+                            .font(Tok.TypeScale.label)
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+                Spacer(minLength: 0)
+            }
+            .padding(.vertical, 3)
+            .padding(.horizontal, Tok.Space.tight)
+            .contentShape(.rect)
+        }
+        .buttonStyle(.glassRow)
+        .disabled(!isAnswerable)
+        .background(
+            RoundedRectangle(cornerRadius: Tok.Radius.chip)
+                .fill(isOn ? Tok.Palette.agent.opacity(0.10) : .clear)
+        )
+    }
+
+    private func marker(isOn: Bool) -> String {
+        if question.multiSelect {
+            return isOn ? "checkmark.square.fill" : "square"
+        }
+        return isOn ? "largecircle.fill.circle" : "circle"
     }
 }
 

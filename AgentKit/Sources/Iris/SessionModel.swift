@@ -30,6 +30,17 @@ struct ChatMessage: Identifiable, Sendable {
 
     /// True when the turn did any reasoning worth surfacing, with or without visible text.
     var didThink: Bool { !thinking.isEmpty || (thinkingTokens ?? 0) > 0 }
+
+    /// `text` split into what to render and the question block it carries, if any.
+    ///
+    /// Computed rather than stored because `text` is rewritten on every streamed delta and
+    /// again by the buffered `assistant` event; a stored copy would need invalidating in
+    /// three places. `QuestionProtocol.split` early-outs on a substring check, so the common
+    /// case — no block — costs one scan.
+    var parsed: (text: String, question: AgentQuestion?, isPending: Bool) {
+        guard role == .assistant else { return (text, nil, false) }
+        return QuestionProtocol.split(text)
+    }
 }
 
 /// Live per-turn and per-session telemetry, straight from the CLI's own reporting.
@@ -136,7 +147,11 @@ final class SessionModel {
         let bridge = AgentBridge(configuration: AgentConfiguration(
             workingDirectory: workingDirectory,
             permissionMode: .default,
-            appendSystemPrompt: persona.systemPrompt,
+            // Persona plus the question-block convention. Both are launch arguments; there's
+            // no way to teach a running process a new protocol.
+            appendSystemPrompt: [persona.systemPrompt, QuestionProtocol.systemPrompt]
+                .compactMap { $0 }
+                .joined(separator: "\n\n"),
             model: settings.model,
             effort: settings.effort
         ))

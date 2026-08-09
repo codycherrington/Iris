@@ -35,9 +35,14 @@ protocol SidebarTool: AnyObject, Identifiable {
 
 // MARK: - Layout
 
-/// Which tools are showing, in which order. Persisted so the arrangement survives relaunch.
+/// Which tools are showing, in which order, and whether the rail itself is out. Persisted so
+/// the arrangement survives relaunch.
 struct SidebarLayout: Codable, Equatable, Sendable {
     var enabled: [String]
+    /// The rail is out by default — the tools are the reason this app isn't a terminal, so
+    /// hiding them on first run buries the feature behind a shortcut nobody's been told.
+    /// Decoded with a default so layouts written before this field existed still open.
+    var isVisible: Bool = true
 
     /// Notes first because it costs nothing and is useful immediately; the prompt improver
     /// next because it's the one that most often earns its 9 seconds.
@@ -78,8 +83,9 @@ final class SidebarRegistry {
         // Drop ids that no longer exist rather than rendering a hole. A layout written by a
         // build that had a tool this one doesn't must not strand the panel.
         let known = Set(all.map(\.id))
-        layout = SidebarLayout(
-            enabled: (stored ?? .default).enabled.filter(known.contains))
+        let source = stored ?? .default
+        layout = SidebarLayout(enabled: source.enabled.filter(known.contains),
+                               isVisible: source.isVisible)
     }
 
     var enabledTools: [any SidebarTool] {
@@ -98,6 +104,13 @@ final class SidebarRegistry {
 
     func disable(_ id: String) {
         layout.enabled.removeAll { $0 == id }
+        persist()
+    }
+
+    /// Remember whether the rail was out, so the next launch opens the way you left it.
+    func setVisible(_ visible: Bool) {
+        guard layout.isVisible != visible else { return }
+        layout.isVisible = visible
         persist()
     }
 
