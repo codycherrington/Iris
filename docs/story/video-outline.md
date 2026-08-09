@@ -106,6 +106,68 @@ it's a shared document with two authors, one of whom is the subject. Then the ho
 broke the store's cached copy, and a running session still needs a restart because the system
 prompt is a launch argument.
 
+## My own plan was wrong and a measurement caught it (new — place after "the persona")
+*(2026-08-09. Budget ~2:30. Callback structure with the spike section; if runtime is tight this
+compresses to 90 s and still works, because the payoff is a single sentence.)*
+
+Open on the sentence from my own design doc, on screen, highlighted:
+
+> "…so they never consume the main session's context."
+
+Say plainly that I wrote that, believed it, and never checked it. Then run the two calls, side
+by side, on camera — same six-word prompt, one default, one stripped. Land the table:
+
+| | default | stripped |
+|---|---|---|
+| duration | **32.5 s** | 6.6 s |
+| cache-creation tokens | **18,854** | **0** |
+| model | **opus-5** (I never asked for that) | haiku |
+
+Beat. Then the line the section exists for:
+
+> **"That sentence is true. And it's exactly why it's expensive. It inherits nothing — so it
+> rebuilds everything. Isolation isn't cheapness."**
+
+Then the twist, because the fix isn't the ending: *does this even run on my subscription?*
+Show `apiKeySource: "none"`. So the dollar figure was never a bill — it's an estimate. **The
+real currency is quota, out of the same pool as the conversation.** A chatty sidebar can rate-
+limit the thing you're talking to. The number I'd been optimizing was a proxy for a worse one.
+
+Close on the plan file, annotated rather than rewritten: *"we believed X, here's what we
+measured."*
+
+## 35 green tests and a guaranteed crash (new — place immediately after the above)
+*(2026-08-09. Budget ~1:30. Fast, technical, satisfying. This is the strongest testing argument
+in the video and it needs almost no B-roll — the terminal output carries it.)*
+
+Show the property. It's a plain `Int32`. Nothing about it looks dangerous.
+
+Then the crash, full screen, unedited:
+
+```
+*** -[NSConcreteTask terminationStatus]: task still running
+Abort trap: 6
+```
+
+Explain in one line: it raises an **Objective-C** exception, **Swift cannot catch those**, the
+app doesn't throw — it dies. And it lived in the *timeout* handler, which is by definition the
+moment the process hasn't exited yet. So every timeout was a crash. **100%. Not flaky.**
+
+Cut to the test suite: **35 out of 35, green**, the whole time.
+
+> "It wasn't a bad test suite. It replays captured JSON through a decoder. There's no process,
+> so there's no process lifecycle, so there's no state where this can fail. It was measuring
+> something else entirely and had no way to know."
+
+How it was found: I added a `--timeout` flag to the probe *on purpose*, to fire a real deadline
+at a real process. Show that command running and dying.
+
+Rule on screen: **fixtures test the protocol; only a process tests the process.**
+
+Optional 15-second tag if the edit has room, because it's a nice bit of type design: the fix
+made the error case `noResult(exitCode: Int32?)`. The `?` is the API finally admitting there's a
+state where the exit code doesn't exist yet.
+
 ## The verdict (21:30–23:30)
 Head-to-head against the terminal — the numbers are in now (43 ms, gate passed 2026-08-08).
 Did it become the daily driver? **Answer honestly.** TODO — still open.

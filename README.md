@@ -20,10 +20,10 @@ that's a bug at the top of the list.
 | Phase | What | State |
 |---|---|---|
 | 0 | Spike: auth, streaming, perf, permissions | ✅ **GO** — see `docs/devlog/2026-08-07-inception.md` |
-| 1 | `AgentKit` headless core | ✅ bridge, decoder, 24 tests |
+| 1 | `AgentKit` headless core | ✅ bridge, decoder, one-shot runner, 35 tests |
 | 2 | Minimal chat UI — perf gate | ✅ **PASS** — see `docs/runs/2026-08-08-phase2-perf-gate.md` |
 | 3 | Liquid Glass design system | ✅ dark theme, glass transcript, composer |
-| 4 | Persona wizard, sidebars, file picker, project switcher | 🟡 persona wizard done (ADR-007); sidebars, file picker, switcher next |
+| 4 | Persona wizard, sidebars, file picker, project switcher | 🟡 persona wizard done (ADR-007); sidebar *runner* done (ADR-008); the four tools, file picker, switcher next |
 | 5 | Subagent tree, session library, permission UI | ⬜ |
 
 The authoritative design is **`docs/plan.md`**. Read the relevant phase before implementing.
@@ -43,6 +43,23 @@ is paid **once per session**, not per turn. That result is what makes the whole 
 Also confirmed: `apiKeySource: "none"` (subscription auth), user skills load, and a denied
 write completes the turn rather than hanging — handing back the full intended content, which
 is what makes a native diff-approval UI possible without an MCP permission server.
+
+## Sidebar tools: also measured, and the plan was half wrong (2026-08-09)
+
+Sidebar tools run as short-lived `claude -p` calls so they don't touch the conversation's
+context. That isolation is real — and it is exactly why an unstripped call is expensive, since
+it inherits nothing and rebuilds everything. Same prompt, two launches:
+
+| | default `claude -p` | stripped launch |
+|---|---|---|
+| `duration_ms` | 32,517 | 6,567 |
+| cache-creation tokens | 18,854 | **0** |
+| model | opus-5, silently | haiku |
+
+≈55× cheaper, ≈5× faster. Those flags are the defaults in `OneShotConfiguration`, and three
+tests plus `make harness ARGS="-s"` exist to keep them there. On subscription auth nothing is
+billed — the shared resource is **quota**, so a chatty sidebar can rate-limit the main session.
+See `docs/research/one-shot-cost-model.md` and ADR-008.
 
 ## Architecture
 
@@ -89,8 +106,10 @@ A bare `swift build` inside `AgentKit/` would recreate a heavy `.build/` in the 
 AgentKit/          Swift package — headless core, no UI, unit tested
   Sources/AgentKit/
     AgentEvent.swift     stream-json schema + permissive decoder
+    AgentBridge.swift    actor: one long-lived process, many turns
+    OneShotQuery.swift   the opposite: short-lived, stripped, structured (sidebar tools)
   Tests/AgentKitTests/
-    Fixtures/*.ndjson    real captured CLI output from the Phase 0 spike
+    Fixtures/*.ndjson    real captured CLI output from the spikes
 docs/              plan, devlog, ADRs, research, story  (see CLAUDE.md)
 Makefile           build wrapper that keeps artifacts out of iCloud
 ```

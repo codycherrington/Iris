@@ -14,6 +14,15 @@ moment is gone once it happens uncaptured.
   `docs/research/stream-json-protocol.md`. Renders as text on screen; nothing to re-shoot.
 - [x] **Phase 2 gate numbers** — terminal vs Iris, `docs/runs/2026-08-08-phase2-perf-gate.md`.
   The *numbers* are captured. The **side-by-side footage is not** — see below.
+- [x] **The one-shot cost comparison** (2026-08-09) — 32,517 ms / 18,854 cache tokens / opus-5
+  against 6,567 ms / 0 / haiku, in `docs/research/one-shot-cost-model.md`. The stripped run has
+  a committed fixture (`Fixtures/oneshot_structured.ndjson`); ⚠️ **the expensive run does not** —
+  it was measured live and only the numbers survive. Fine for a table on screen, but there is no
+  NDJSON to scroll past for the default case. If the video wants both raw captures side by side,
+  the unstripped call has to be re-run and saved.
+- [x] **`--json-schema` as a forced tool call** (2026-08-09) — the `StructuredOutput` `tool_use`
+  block and its `"Structured output provided successfully"` `tool_result`, in
+  `Fixtures/oneshot_structured.ndjson`. Pure text, nothing to re-shoot.
 
 ## Expiring — capture on first occurrence, gone otherwise
 - [ ] **First streamed token rendering in the SwiftUI UI** (Phase 2)
@@ -45,6 +54,20 @@ moment is gone once it happens uncaptured.
   locally and re-recording** — worth doing deliberately before Phase 5, because the video beat
   needs to *show* the empty screen, not describe it. Flagging as the first genuinely lost
   moment of the project.
+- [~] **The `Abort trap: 6` crash, live** (2026-08-09) — `*** -[NSConcreteTask
+  terminationStatus]: task still running` followed by the abort, from firing a real deadline at
+  a real child. Happened uncaptured, but **cheaply restageable**: delete the `isRunning` guard
+  in `exitedStatus(_:)` (`OneShotQuery.swift`, added in `5d3947b`) and run
+  `make harness ARGS="-s --timeout 1"`. The shot that makes it land is a **split screen** — the
+  crash on one side, `make test` reporting **35/35 green** on the other, at the same moment.
+  That single frame is the whole "green in a dimension it cannot observe" argument, and it does
+  not exist as a still yet. Third entry in the pattern below, and the first one that was
+  restaged-by-design rather than lost.
+- [ ] **The two calls, side by side, unedited** (2026-08-09) — default `claude -p` and the
+  stripped launch running on the same six-word prompt, timers visible. ~32 s versus ~6.6 s is
+  long enough to *feel* on camera, which is the point: the table states it, the footage sells
+  it. Fully reproducible, nothing expiring, but shoot the wall clock rather than trusting
+  `duration_ms` — it under-reports by the ~2 s of process spawn.
 - [ ] **Iris editing its own `persona.json`, live** (Phase 4, 2026-08-08). Happened, uncaptured
   — but **fully reproducible**, unlike the two above: ask the agent to change its own persona
   and it does it again. Not expiring. Shoot it properly rather than settling for a rerun done
@@ -86,6 +109,16 @@ moment is gone once it happens uncaptured.
 - [ ] **Dispatch-overhead bar chart** — Phase 0 headless 7–20 ms · Phase 2/3 full glass UI
   21–67 ms · threshold 100 ms. Three bars, one line. From
   `docs/runs/2026-08-08-phase2-perf-gate.md`.
+- [ ] **The cold-start bar** (2026-08-09) — 18,854 cache-creation tokens against 0, one pair of
+  bars, no axis needed. The whole sidebar-cost section reduces to this image. From
+  `docs/research/one-shot-cost-model.md`.
+- [ ] **"Isolation is not cheapness"** as a title card — the plan's original sentence on top,
+  struck through or highlighted, the correction beneath. The single most quotable line the
+  project has produced so far and it's a still, not a clip.
+- [ ] **Self-reported vs lived latency**, two pairs on one chart (2026-08-09) — Phase 2's 43 ms
+  dispatch against an 11 s empty screen, and the one-shot's 7.2 s `duration_ms` against 9.25 s
+  wall clock. Makes "the honest number was the one the instrument wasn't reporting" a picture
+  instead of a paragraph.
 
 ## Notes
 - Record at the native retina resolution; glass artifacts badly at low bitrate. Prefer
@@ -94,7 +127,12 @@ moment is gone once it happens uncaptured.
 - **Standing constraint (2026-08-08):** the assistant does not screenshot or screen-record
   Iris — it rebuilds via `make` and Cody captures. Every item on this list is a request to
   Cody, not something a session can quietly self-serve.
-- **Pattern noticed 2026-08-08:** the most valuable moments are the *broken* states, and they
-  have the shortest lives — the empty-screen stall and the glass-fusion tail were both fixed
-  within minutes of being seen. Both are now recoverable only by reverting known commits. When
-  something looks wrong in a way that's interesting, record it *before* fixing it.
+- **Pattern noticed 2026-08-08, confirmed 2026-08-09:** the most valuable moments are the
+  *broken* states, and they have the shortest lives — the empty-screen stall, the glass-fusion
+  tail and the `Abort trap: 6` crash were each fixed within minutes of being seen. All three are
+  now recoverable only by reverting a known commit. When something looks wrong in a way that's
+  interesting, record it *before* fixing it.
+- **Partial mitigation (2026-08-09):** for the crash, the exact revert *and* the exact command
+  that re-triggers it were written down at fix time rather than reconstructed later. That is the
+  cheapest possible insurance and it costs one line in the devlog. Do it every time — three
+  losses in three days is a pattern, not bad luck.

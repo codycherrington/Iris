@@ -247,7 +247,12 @@ Only now does it get beautiful.
   inherits nothing and so rebuilds everything. Stripped and pinned to Haiku it is 0 tokens /
   6.6 s / $0.004. `OneShotConfiguration` bakes those flags in as defaults. Add ~2 s of process
   spawn that `duration_ms` doesn't count — a sidebar click lands around 9 s, so every tool needs
-  a pending state. Protocol + registry + the four tools are still to build.)*
+  a pending state. Isolation and cheapness are separate properties and this plan conflated them;
+  see **ADR-008** for why the runner is a separate type from `AgentBridge`, and
+  `docs/research/one-shot-cost-model.md` for the measurements. Also settled: one-shot calls
+  report `apiKeySource: "none"` — same subscription path, nothing billed — so the constraint is
+  **quota**, drawn from the same five-hour pool as the conversation. Protocol + registry + the
+  four tools are still to build.)*
 - **File path picker** — `NSOpenPanel`, plus a fuzzy in-app finder; inject path into composer or copy.
 - **Project switcher** — sets the subprocess `cwd`, tracks recents, shows git branch + dirty state.
 
@@ -260,6 +265,13 @@ Only now does it get beautiful.
   stream.
 - **Session library + cost meter.** Searchable, resumable, forkable. `total_cost_usd` per session
   (a client-side estimate — label it as such in the UI).
+  *(Amended 2026-08-09: on subscription auth nothing is billed, so the meter's real subject is
+  **quota**, not dollars — `rate_limit_event`'s five-hour window. And it **must count sidebar
+  one-shot usage**, which fires its own `rate_limit_event` against the same pool; a meter that
+  reads only the main session under-reports and a chatty sidebar can rate-limit the
+  conversation. Read `modelUsage`, not `usage` — the latter undercounts by a hidden internal
+  call, measured at 526 in / 14 out on the one-shot fixture. `OneShotUsage` is returned to
+  callers for exactly this.)*
 - **Native permission + diff approval UI.** ⚠️ **Least-verified piece.** Routing approvals into a
   SwiftUI sheet needs `--permission-prompt-tool` backed by a local MCP server; that mechanism is not
   yet confirmed and needs its own spike. **v1 ships `--permission-mode acceptEdits` plus an explicit
@@ -300,7 +312,11 @@ above; pick the real one at scaffold time.
 - **Phase 2:** a real task completed in the app, timed against the terminal. This is the gate.
 - **Phase 3:** visual check in light + dark; Reduce Motion honored; no dropped frames while streaming.
 - **Phase 4:** persona wizard output actually changes agent behavior in a fresh session (verify by
-  asking the agent who it is). Sidebar tools confirmed not to touch main-session context.
+  asking the agent who it is). Sidebar tools confirmed not to touch main-session context —
+  **and** confirmed to pay no cold start: `cache_creation_input_tokens == 0` and exactly one
+  model billed, both asserted by `OneShotQueryTests` and re-checkable live with
+  `make harness ARGS="-s"` (which exits 1 on a regression). Context isolation alone is not the
+  bar; it was never the expensive part.
 - **Phase 5:** subagent tree matches a real fan-out run; approval flow spiked before being built.
 - **Throughout:** `xcodebuild` clean; run the app after each phase rather than trusting tests alone.
 
@@ -311,5 +327,7 @@ above; pick the real one at scaffold time.
 | Perceived latency worse than terminal | Phase 0 kill criterion; re-tested at Phase 2 before any polish |
 | Stream-json schema is undocumented in places and may drift | Decode defensively, `.unrecognized` fallback, fixture-driven tests |
 | Permission-approval routing unproven | Deferred to Phase 5 behind its own spike; v1 uses `--permission-mode` |
-| Non-bare `-p` auth behavior changes | Verified in Phase 0; if it regresses, the app degrades to spawn-per-turn `--resume`, not to API keys |
+| Non-bare `-p` auth behavior changes | Verified in Phase 0, re-verified for one-shot calls 2026-08-09; if it regresses, the app degrades to spawn-per-turn `--resume`, not to API keys |
+| Sidebar tools quietly burn the shared quota | Stripped launch is the *default* in `OneShotConfiguration`; three cost-regression tests plus a live probe that exits non-zero on a cold start (2026-08-09) |
+| Failure paths that fixtures can't reach (subprocess lifecycle, pipe deadlock, exit codes) | Harness flags that force the failure against a real process — `make harness ARGS="-s --timeout N"`; see `docs/research/process-termination-status-trap.md` |
 | Scope sprawl (this is a big surface) | Phases 0–2 are the actual product; 3–5 are independently shippable increments |

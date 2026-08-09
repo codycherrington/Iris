@@ -2,6 +2,7 @@
 
 Reverse-engineered from real captured output, `claude` **v2.1.226**, 2026-08-07.
 Re-verified against a fresh live capture 2026-08-08 (thinking section).
+Extended 2026-08-09 with one-shot `-p` + `--json-schema` runs (bottom section).
 Raw captures: `AgentKit/Tests/AgentKitTests/Fixtures/*.ndjson`.
 
 Several of these event types appear in **no public documentation**. This file is currently the
@@ -34,7 +35,7 @@ in-flight turn, runs `SessionEnd` hooks, and exits 143.
 ## Per-turn event order
 
 ```
-rate_limit_event          (once, at session start, BEFORE system/init)
+rate_limit_event          (once, at session start — see ordering caveat below)
 system/init               ← repeats EVERY turn, not once per process
 system/status
 system/thinking_tokens    (0..n, only when thinking — interleaves with the deltas below)
@@ -67,6 +68,16 @@ matching `tool_result`, then the cycle repeats before the final `result`.
 
 On a subscription this is more useful than cost tracking: a live quota gauge with a reset
 countdown. `resetsAt` is Unix epoch seconds.
+
+**Ordering is not stable — do not depend on it.** In the persistent-session captures of
+2026-08-07 this arrives *before* `system/init`. In the one-shot capture of 2026-08-09
+(`oneshot_structured.ndjson`) it arrives *after*: `system/init` is line 1, `rate_limit_event`
+is line 2. Same CLI version. Treat it as "arrives early in the run", nothing more precise, and
+never as a signal that a session has begun.
+
+Also worth knowing: one-shot `-p` calls emit it too, and it reports the **same** five-hour
+window as the conversation. Sidebar tools and the main session draw on one pool — see
+`one-shot-cost-model.md`.
 
 ### `system/init`
 
@@ -230,6 +241,114 @@ context gauge), `usage.iterations[]`, `stop_reason`, `terminal_reason`, and:
 
 The **full intended tool input** — the basis for the diff-approval UI (ADR-004).
 
+## One-shot `-p` runs with `--json-schema` (observed 2026-08-09)
+
+Capture: `AgentKit/Tests/AgentKitTests/Fixtures/oneshot_structured.ndjson` — 22 lines, a real
+stripped sidebar-style call. This is the mode Phase 4's sidebar tools use; the cost side is in
+`one-shot-cost-model.md`, the wire shapes are here.
+
+### It is the same protocol, not a different one
+
+The whole fixture decodes through the existing session decoder with **zero `.unrecognized`
+events** (`OneShotQueryTests.testOneShotRunDecodesWithNoUnrecognizedEvents` pins this). A
+one-shot run is a normal stream-json run that happens to end after one exchange. No new event
+types, no new envelope. That's a useful invariant: if it ever breaks, the main transcript path
+is about to break too.
+
+Observed order in the fixture:
+
+```
+system/init                    ← line 1 (see rate_limit_event ordering caveat above)
+rate_limit_event               ← line 2
+system/thinking_tokens ×16     ← yes, on Haiku, on a six-word prompt
+assistant                      ← thinking block
+assistant                      ← tool_use block (the schema tool)
+user                           ← tool_result: "Structured output provided successfully"
+result/success
+```
+
+No `stream_event` lines: the probe runs without `--include-partial-messages`, since a sidebar
+tool wants one answer, not tokens.
+
+### `--json-schema` is a forced tool call underneath
+
+This is the single most useful thing to know about the flag. The schema is injected as a tool
+named **`StructuredOutput`**, and the model *calls* it:
+
+```json
+{"type":"tool_use","id":"toolu_01YBPNfM49dfUAgaMm2aJkcr","name":"StructuredOutput",
+ "input":{"score":15,"issues":["Extremely vague and lacks context - 'it' is undefined", …],
+          "rewrite":"Please review and improve the following …"},
+ "caller":{"type":"direct"}}
+```
+
+followed by a synthetic `tool_result`:
+
+```json
+{"tool_use_id":"toolu_01YBPNfM49dfUAgaMm2aJkcr","type":"tool_result",
+ "content":"Structured output provided successfully"}
+```
+
+Consequences that are easy to trip over:
+
+- **`num_turns: 2`, not 1**, and **`stop_reason: "tool_use"`, not `end_turn`** — on a
+  successful run. Anything asserting `stop_reason == "end_turn"` will report false failures.
+- The tool shows up in `system/init.tools` **even with `--tools ""`**:
+  `"tools":["StructuredOutput"]`. `--tools ""` removes the *built-in* tools; the schema tool is
+  added back by `--json-schema`.
+- `caller: {"type":"direct"}` is present on the `tool_use` block. Not seen elsewhere yet.
+
+### The payload lands in two places; only one of them means it
+
+```json
+"structured_output":{"score":15,"issues":[…],"rewrite":"…"},
+"result":"{\"score\":15,\"issues\":[…],\"rewrite\":\"…\"}"
+```
+
+`result.structured_output` is **already-parsed JSON**. `result` is the same content **mirrored
+as a string**. Decode `structured_output`: `result` is the assistant's text channel and the
+mirroring is incidental — a future version that puts prose there alongside the payload would
+silently break anyone parsing `result`.
+`OneShotQueryTests.testStructuredPayloadComesFromItsOwnFieldNotResultText` exists to keep the
+typed path pointed at the real field even though both parse identically today.
+
+A run launched **without** `--json-schema` has no `structured_output` key at all — verified
+against `transcript.ndjson`.
+
+### `modelUsage` totals exceed `usage` — there is a hidden internal call
+
+In this fixture, the top-level `usage` and the `modelUsage` breakdown disagree, consistently:
+
+| | `input_tokens` | `output_tokens` |
+|---|---|---|
+| `result.usage` | 956 | 542 |
+| `result.modelUsage["claude-haiku-4-5-20251001"]` | 1482 | 556 |
+| **difference** | **526** | **14** |
+
+That extra 526-in / 14-out is an internal call the CLI makes on its own behalf; it never appears
+as an `assistant` event on the wire. A comparable extra Haiku call was observed on the
+unstripped Opus run too, so it is not an artifact of the stripped launch.
+
+**Use `modelUsage` for a quota meter, not `usage`** — `usage` undercounts. `modelUsage` is also
+the only place the model that actually ran is named, which is how
+`testOneShotRunsOnHaikuOnly` can assert exactly one model was billed.
+
+### Timing fields on a one-shot run
+
+```json
+"duration_ms":7755, "duration_api_ms":8738,
+"ttft_ms":5207, "ttft_stream_ms":1935, "time_to_request_ms":15
+```
+
+Two things to note. **`duration_api_ms` (8738) is larger than `duration_ms` (7755)** here, so
+the fields are not nested the way the names imply — don't subtract one from the other to derive
+client overhead. And `duration_ms` **excludes process spawn**: measured end-to-end through the
+Swift API, wall clock ran ~2 s longer than the CLI's self-report (~9.25 s vs ~7.2 s on a live
+run). Budget for that in any UI that shows progress.
+
+`time_to_request_ms: 15` sits right in the 7–20 ms persistent-session band, which makes sense —
+it measures dispatch after the process is up, and says nothing about the cost of getting there.
+
 ## Measured performance (2026-08-07, v2.1.226)
 
 | Turn | `ttft_ms` | `ttft_stream_ms` | `time_to_request_ms` |
@@ -255,3 +374,10 @@ that the client's overhead is a rounding error next to the API round-trip, and t
 - Exact shape of `system/api_retry` in practice — documented but not yet observed.
 - Behaviour of `--replay-user-messages`; useful for optimistic-send UI acknowledgment.
 - Whether `--fork-session` mid-conversation is usable for a "branch this conversation" feature.
+- **What the 526-in / 14-out internal call in `modelUsage` actually is** (2026-08-09). It is
+  present but invisible on the wire. Whatever it is, it counts against quota.
+- **Why `duration_api_ms` can exceed `duration_ms`** (2026-08-09, one-shot run). Blocks any
+  attempt to derive client-side overhead by subtraction.
+- Whether a `--json-schema` run can ever succeed *without* `structured_output` — i.e. can the
+  model answer in prose and still report `subtype: "success"`? `AgentError.noStructuredOutput`
+  assumes yes and handles it; not yet observed.

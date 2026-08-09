@@ -40,8 +40,10 @@ public struct OneShotConfiguration: Sendable {
     /// prompt is most of the cold start, and a sidebar tool needs none of it.
     public var systemPrompt: String
 
-    /// Built-in tools to expose. Empty means `--tools ""`: no tool definitions at all, which
-    /// is where the bulk of the token saving comes from. A tool that needs filesystem access
+    /// Built-in tools to expose. Empty means `--tools ""`, which is where the bulk of the
+    /// token saving comes from. Note it strips the *built-ins* only: `--json-schema` injects
+    /// its own tool regardless, and the captured fixture shows `system/init.tools` as
+    /// `["StructuredOutput"]` even with the list empty. A tool that needs filesystem access
     /// is not a sidebar tool — it belongs in the main session.
     public var tools: [String]
 
@@ -106,19 +108,46 @@ public struct OneShotResult<Value: Sendable>: Sendable {
 
 /// What the run cost. Surfaced rather than logged because sidebar tools draw on the same
 /// quota as the conversation — the Phase 5 meter has to count these too or it lies.
+///
+/// Token counts are summed from `modelUsage`, **not** taken from the result's `usage`
+/// block. The two disagree: the captured fixture reports `usage` 956/542 against a
+/// `modelUsage` total of 1482/556, a fixed 526-in/14-out shortfall that is a hidden
+/// internal CLI call. `usage` undercounts, so anything metering quota must sum `modelUsage`.
 public struct OneShotUsage: Sendable {
     public let durationMS: Int?
     public let numTurns: Int?
-    public let inputTokens: Int?
-    public let outputTokens: Int?
-    public let cacheCreationTokens: Int?
-    /// Client-side estimate at API rates. Nothing is billed on subscription auth.
+    public let inputTokens: Int
+    public let outputTokens: Int
+    public let cacheCreationTokens: Int
+    /// Client-side estimate at API rates. Nothing is billed on subscription auth — the real
+    /// cost is quota, drawn from the same pool as the conversation.
     public let estimatedCostUSD: Double?
-    public let model: String?
+    /// Every model billed for this run, heaviest first by output tokens. More than one entry
+    /// means something escalated: a sidebar tool that reaches Opus is a bug, not a feature.
+    public let models: [String]
 
-    /// True when the run rebuilt its prompt cache from scratch. Expected to be false for
-    /// every sidebar tool; if it starts coming back true, a flag stopped working.
-    public var didPayColdStart: Bool { (cacheCreationTokens ?? 0) > 0 }
+    /// The model that did the work — the heaviest by output tokens, not the alphabetically
+    /// first. Picking alphabetically would have reported "haiku" for the Opus-escalated run
+    /// that motivated this whole type, which is exactly the case worth catching.
+    public var model: String? { models.first }
+
+    /// True when the run rebuilt its prompt cache from scratch. Expected false for every
+    /// sidebar tool; if it starts coming back true, a strip flag stopped working.
+    public var didPayColdStart: Bool { cacheCreationTokens > 0 }
+
+    init(result: RunResult) {
+        durationMS = result.durationMS
+        numTurns = result.numTurns
+        estimatedCostUSD = result.totalCostUSD
+
+        let usage = result.modelUsage.values
+        inputTokens = usage.reduce(0) { $0 + ($1.inputTokens ?? 0) }
+        outputTokens = usage.reduce(0) { $0 + ($1.outputTokens ?? 0) }
+        cacheCreationTokens = usage.reduce(0) { $0 + ($1.cacheCreationInputTokens ?? 0) }
+        models = result.modelUsage
+            .sorted { ($0.value.outputTokens ?? 0) > ($1.value.outputTokens ?? 0) }
+            .map(\.key)
+    }
 }
 
 // MARK: - Runner
@@ -153,14 +182,7 @@ public enum OneShotQuery {
 
         return OneShotResult(
             value: try result.decodeStructuredOutput(Value.self),
-            usage: OneShotUsage(
-                durationMS: result.durationMS,
-                numTurns: result.numTurns,
-                inputTokens: result.usage?.inputTokens,
-                outputTokens: result.usage?.outputTokens,
-                cacheCreationTokens: result.usage?.cacheCreationInputTokens,
-                estimatedCostUSD: result.totalCostUSD,
-                model: result.modelUsage.keys.sorted().first))
+            usage: OneShotUsage(result: result))
     }
 
     /// The run without the decoding step, for callers that want the raw result — the

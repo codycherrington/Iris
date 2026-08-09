@@ -159,14 +159,51 @@ final class OneShotQueryTests: XCTestCase {
         XCTAssertTrue(config.requireSubscriptionAuth)
     }
 
-    func testColdStartFlagReflectsCacheCreation() {
-        let warm = OneShotUsage(durationMS: 1, numTurns: 2, inputTokens: 10, outputTokens: 5,
-                                cacheCreationTokens: 0, estimatedCostUSD: 0.001, model: "haiku")
-        XCTAssertFalse(warm.didPayColdStart)
+    func testColdStartFlagReflectsCacheCreation() throws {
+        let usage = OneShotUsage(result: try oneShotResult())
+        XCTAssertFalse(usage.didPayColdStart)
+        XCTAssertEqual(usage.cacheCreationTokens, 0)
+    }
 
-        let cold = OneShotUsage(durationMS: 1, numTurns: 2, inputTokens: 10, outputTokens: 5,
-                                cacheCreationTokens: 18_854, estimatedCostUSD: 0.2,
-                                model: "opus")
-        XCTAssertTrue(cold.didPayColdStart)
+    /// `result.usage` and `result.modelUsage` disagree: the fixture reports 956/542 against
+    /// a modelUsage total of 1482/556. The 526-in/14-out shortfall is a hidden internal CLI
+    /// call, and it was present on the Opus run too — a fixed cost, not noise. A quota meter
+    /// reading `usage` would silently under-report every sidebar call.
+    func testUsageBlockUndercountsModelUsage() throws {
+        let result = try oneShotResult()
+        let block = try XCTUnwrap(result.usage)
+        let summed = OneShotUsage(result: result)
+
+        XCTAssertEqual(block.inputTokens, 956)
+        XCTAssertEqual(summed.inputTokens, 1482, "OneShotUsage must sum modelUsage")
+        XCTAssertEqual(summed.inputTokens - (block.inputTokens ?? 0), 526)
+        XCTAssertEqual(summed.outputTokens - (block.outputTokens ?? 0), 14)
+    }
+
+    /// The heaviest model by output tokens, not the alphabetically first — sorting by name
+    /// would report "haiku" for a run that escalated to Opus, hiding the one thing this
+    /// type exists to catch.
+    func testPrimaryModelIsTheHeaviestNotTheAlphabeticallyFirst() {
+        let escalated = RunResult(
+            sessionID: "s", subtype: "success", isError: false, stopReason: "tool_use",
+            resultText: nil, numTurns: 2, ttftMS: nil, ttftStreamMS: nil,
+            timeToRequestMS: nil, durationMS: 1, durationAPIMS: nil, totalCostUSD: 0.237,
+            modelUsage: [
+                "claude-haiku-4-5": .init(inputTokens: 526, outputTokens: 14,
+                                          cacheReadInputTokens: 0, cacheCreationInputTokens: 0,
+                                          costUSD: 0.0006, contextWindow: nil,
+                                          maxOutputTokens: nil),
+                "claude-opus-5": .init(inputTokens: 2, outputTokens: 1932,
+                                       cacheReadInputTokens: 0,
+                                       cacheCreationInputTokens: 18_854,
+                                       costUSD: 0.2368, contextWindow: nil,
+                                       maxOutputTokens: nil),
+            ],
+            permissionDenials: [], structuredOutputJSON: nil, usage: nil)
+
+        let usage = OneShotUsage(result: escalated)
+        XCTAssertEqual(usage.model, "claude-opus-5", "alphabetical order would say haiku")
+        XCTAssertEqual(usage.models.count, 2)
+        XCTAssertTrue(usage.didPayColdStart)
     }
 }
