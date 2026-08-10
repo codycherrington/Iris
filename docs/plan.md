@@ -168,7 +168,7 @@ cannot deadlock the UI. `--permission-mode acceptEdits` auto-approves cleanly fo
   subcommand to get them from either. It supports a status chip with a countdown, which is
   what Iris shows, and cannot support a percentage without inventing one. The bar under the
   composer measures **context** instead; see
-  [ADR-012](decisions/ADR-012-context-not-quota-under-the-composer.md).
+  [ADR-012](decisions/ADR-012-context-not-quota.md).
 - **`system/thinking_tokens`** → `{estimated_tokens, estimated_tokens_delta}`, streamed live. Drives
   a genuine thinking-progress indicator instead of a spinner.
 - **`system/status`**, and `system/permission_denied` (above).

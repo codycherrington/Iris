@@ -54,10 +54,6 @@ struct GlassContentView: View {
                 }
 
                 composer
-                ContextMeter(tokens: model.stats.contextTokens,
-                             window: model.stats.contextWindow)
-                    .padding(.horizontal, Tok.Space.loose)
-                    .padding(.bottom, Tok.Space.tight)
                 GlassStatusBar(stats: model.stats, isBusy: model.isBusy,
                                directory: model.workingDirectory,
                                assistantName: model.persona.assistantName,
@@ -320,85 +316,6 @@ struct SendButton: View {
     }
 }
 
-// MARK: - Context meter
-
-/// How full the conversation's context window is, sitting directly under the composer.
-///
-/// **This measures context, not quota, because quota has no number.** `rate_limit_event`
-/// carries `status`, `resetsAt`, `rateLimitType` and the overage flags — and no figure for
-/// how much of the window has been consumed. There is no `claude usage` subcommand either.
-/// A percentage bar for quota would therefore have to be invented, and an invented number in
-/// the one part of the UI whose whole job is honest accounting is worse than no bar. The
-/// quota chip in the status bar still says what the CLI actually reports: status and reset
-/// time. Context, by contrast, is measured exactly — `result.usage` is the per-turn prompt
-/// weight and `modelUsage[model].contextWindow` is the denominator.
-///
-/// It's also the number that changes what you do next: at 85% the next thing that happens is
-/// a compact, and knowing that before you write a long message is worth a strip of pixels.
-struct ContextMeter: View {
-    let tokens: Int?
-    let window: Int?
-
-    /// Nil until a turn has completed — there's nothing to report before the first result,
-    /// and a bar sitting at 0% would imply a measurement that hasn't happened.
-    private var fraction: Double? {
-        guard let tokens, let window, window > 0 else { return nil }
-        return min(Double(tokens) / Double(window), 1)
-    }
-
-    /// Amber from 70%, red from 90%. The thresholds are about what you'd do differently:
-    /// past 70 it's worth being deliberate about pasting large files, past 90 a compact is
-    /// imminent.
-    private func tint(_ fraction: Double) -> Color {
-        switch fraction {
-        case ..<0.7: return Tok.Palette.agent
-        case ..<0.9: return Tok.Palette.warn
-        default: return Tok.Palette.danger
-        }
-    }
-
-    var body: some View {
-        if let fraction, let tokens, let window {
-            VStack(alignment: .leading, spacing: 3) {
-                GeometryReader { geo in
-                    ZStack(alignment: .leading) {
-                        Capsule().fill(.white.opacity(0.08))
-                        Capsule()
-                            .fill(tint(fraction))
-                            // `max(…, 2)` so a non-zero context is never invisible: at 0.2%
-                            // of a 1M window the fill rounds to a fraction of a pixel and the
-                            // bar reads as empty, which is a different claim than "barely
-                            // used".
-                            .frame(width: max(geo.size.width * fraction, 2))
-                    }
-                }
-                .frame(height: 3)
-
-                HStack(spacing: 4) {
-                    Text("context")
-                        .foregroundStyle(.tertiary)
-                    Text("\(Int((fraction * 100).rounded()))%")
-                        .foregroundStyle(tint(fraction))
-                    Text("· \(compact(tokens)) / \(compact(window))")
-                        .foregroundStyle(.tertiary)
-                    Spacer(minLength: 0)
-                }
-                .font(.system(size: 9.5, design: .monospaced))
-            }
-            .help("\(tokens) of \(window) prompt tokens on the last turn, cached included.")
-            .animation(Tok.Motion.content, value: fraction)
-        }
-    }
-
-    private func compact(_ n: Int) -> String {
-        switch n {
-        case ..<1_000: return "\(n)"
-        case ..<1_000_000: return String(format: "%.0fk", Double(n) / 1_000)
-        default: return String(format: "%.1fM", Double(n) / 1_000_000)
-        }
-    }
-}
-
 // MARK: - Backdrop
 
 /// A slow spectral wash behind the glass. Liquid Glass refracts what's behind it, so with a
@@ -569,11 +486,28 @@ struct GlassStatusBar: View {
                 }
 
                 if let quota = stats.quotaStatus {
-                    Text(quotaLabel(quota))
-                        .foregroundStyle(.secondary)
-                        .padding(.horizontal, Tok.Space.snug)
-                        .padding(.vertical, 5)
-                        .glassEffect(Tok.Surface.panel, in: .capsule)
+                    readout(help: quotaHelp) {
+                        Text(quotaLabel(quota)).foregroundStyle(.secondary)
+                    }
+                }
+
+                // Context and session sit beside quota rather than above the status bar
+                // because they answer the same kind of question — what has this session
+                // spent, and how close is it to a limit. A bar was the wrong shape for one
+                // number in a row of chips that are all one number.
+                if let context = contextPercent {
+                    readout(help: contextHelp) {
+                        Text("context").foregroundStyle(.tertiary)
+                        Text("\(context)%").foregroundStyle(contextTint(context))
+                    }
+                }
+
+                if stats.turns > 0 {
+                    readout(help: sessionHelp) {
+                        Text("session").foregroundStyle(.tertiary)
+                        Text(compactTokens(stats.sessionTokens))
+                            .foregroundStyle(.secondary)
+                    }
                 }
 
                 Spacer()
@@ -646,10 +580,84 @@ struct GlassStatusBar: View {
             .padding(.vertical, 3)
     }
 
+    /// A chip that reports rather than acts. Same shape as the buttons beside it, minus the
+    /// interactive glass and the press feedback — those would promise a click that does
+    /// nothing.
+    private func readout(help: String,
+                         @ViewBuilder content: () -> some View) -> some View {
+        HStack(spacing: 4, content: content)
+            .lineLimit(1)
+            .fixedSize()
+            .padding(.horizontal, Tok.Space.snug)
+            .padding(.vertical, 5)
+            .glassEffect(Tok.Surface.panel, in: .capsule)
+            .help(help)
+    }
+
     private func quotaLabel(_ status: String) -> String {
         guard let resets = stats.quotaResetsAt else { return status }
         let mins = max(0, Int(resets.timeIntervalSinceNow / 60))
         return mins >= 60 ? "quota \(mins / 60)h\(mins % 60)m" : "quota \(mins)m"
+    }
+
+    private var quotaHelp: String {
+        let status = stats.quotaStatus ?? "unknown"
+        return "Rate-limit window: \(status). The CLI reports a state and a reset time and no "
+            + "figure for how much is left, so this is a countdown, not a gauge."
+    }
+
+    // MARK: Context
+
+    /// Nil until a turn has completed. A 0% chip would assert a measurement that hasn't
+    /// happened yet.
+    private var contextPercent: Int? {
+        guard let tokens = stats.contextTokens,
+              let window = stats.contextWindow, window > 0 else { return nil }
+        return Int((min(Double(tokens) / Double(window), 1) * 100).rounded())
+    }
+
+    /// Amber from 70, red from 90 — the points where what you'd do next changes: be
+    /// deliberate about pasting large files, then expect a compact.
+    private func contextTint(_ percent: Int) -> Color {
+        switch percent {
+        case ..<70: return Tok.Palette.agent
+        case ..<90: return Tok.Palette.warn
+        default: return Tok.Palette.danger
+        }
+    }
+
+    private var contextHelp: String {
+        guard let tokens = stats.contextTokens, let window = stats.contextWindow else {
+            return "How full the context window is."
+        }
+        return "\(tokens.formatted()) of \(window.formatted()) tokens carried by the last "
+            + "turn's prompt, cached included — cached tokens occupy the window like any "
+            + "other, they're only cheaper to send."
+    }
+
+    // MARK: Session
+
+    private var sessionHelp: String {
+        let cost = stats.sessionCostUSD.map { String(format: "  ·  $%.4f at API rates "
+            + "(nothing is billed on the subscription)", $0) } ?? ""
+        return """
+            \(stats.turns) turn\(stats.turns == 1 ? "" : "s")  ·  \
+            \(stats.sessionInputTokens.formatted()) in  ·  \
+            \(stats.sessionOutputTokens.formatted()) out  ·  \
+            \(stats.sessionCacheCreationTokens.formatted()) cache write  ·  \
+            \(stats.sessionCacheReadTokens.formatted()) cache read\(cost)
+            """
+    }
+
+    /// The headline figure is dominated by cache reads, which is honest — every turn re-sends
+    /// the whole conversation and the CLI charges quota for it either way. The breakdown is
+    /// one hover away rather than four chips wide.
+    private func compactTokens(_ n: Int) -> String {
+        switch n {
+        case ..<1_000: return "\(n) tok"
+        case ..<1_000_000: return String(format: "%.0fk tok", Double(n) / 1_000)
+        default: return String(format: "%.2fM tok", Double(n) / 1_000_000)
+        }
     }
 }
 

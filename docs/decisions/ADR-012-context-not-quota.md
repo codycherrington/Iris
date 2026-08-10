@@ -1,6 +1,7 @@
-# ADR-012 — The gauge under the composer measures context, not quota
+# ADR-012 — The context readout measures context, not quota
 
-**Date:** 2026-08-10 · **Status:** accepted
+**Date:** 2026-08-10 · **Status:** accepted (amended same day: it's a chip in the status bar,
+not a bar under the composer — see *Consequences*)
 
 ## Context
 
@@ -74,8 +75,18 @@ independently useful and this doesn't preclude adding quota later. If `rate_limi
 a `used`/`limit` pair, the same strip can carry a second bar.
 
 **Put it in the status bar with the other metrics.** Rejected on Cody's placement — under the
-composer — which is also the better spot: it's the number that should change what you type
-next, so it belongs where you're typing, not in the telemetry row.
+composer — which seemed like the better spot too: it's the number that should change what you
+type next, so it belongs where you're typing.
+
+**Reversed the same day, having seen it.** Cody: *"have the context percentage be another
+little pill like the others with just a percentage number, no bar or chart."* He's right, and
+the reasoning above was the sort that survives only until something is on screen. A progress
+bar is a shape for a quantity you watch move — it earns its width by making a *rate* legible.
+Context doesn't move like that; it steps once per turn and mostly sits still. What the bar
+actually contributed was a second row of chrome between the composer and the status bar, and a
+horizontal rule that read as a divider. As a chip it costs nothing, sits beside the quota chip
+it belongs next to, and the tokens/window detail moves into the tooltip where the same detail
+already lives for every other chip.
 
 ## Consequences
 
@@ -86,7 +97,13 @@ next, so it belongs where you're typing, not in the telemetry row.
 - **Thresholds are behavioural, not decorative**: cyan under 70%, amber to 90%, red past it.
   Those are the points where what you'd do differently changes — be deliberate about pasting
   large files, then expect a compact.
-- **The fill has a 2pt floor.** At 0.2% of a 1M window the fill rounds below a pixel and the
-  bar reads as empty, which is a different claim than "barely used."
-- The gauge reports the *last turn*, not a running maximum. After a compact it drops, which
+- The readout reports the *last turn*, not a running maximum. After a compact it drops, which
   is correct and is the moment the number is most worth seeing.
+- **A session chip landed beside it**, for the same reason and from the same event: cumulative
+  tokens from `modelUsage`, which is already session-cumulative and so is assigned rather than
+  accumulated — adding to it would square the count by the third turn. The headline figure is
+  dominated by cache reads, which is honest: every turn re-sends the conversation and that is
+  real work drawn from the same pool. The four-way breakdown and the turn count are in the
+  tooltip rather than four chips wide.
+- **Turns are counted client-side**, not read from `result.num_turns` — that field describes
+  the run that just finished (and is 2 for a forced-tool-call run), not the conversation.

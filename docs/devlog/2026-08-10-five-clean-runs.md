@@ -95,7 +95,7 @@ asked for, from quota, would mean estimating against a limit the client is never
 drawing it as a confident fill.
 
 Context is measured exactly, from the same `result` event, and got built instead. The full
-reasoning is in [ADR-012](../decisions/ADR-012-context-not-quota-under-the-composer.md); the
+reasoning is in [ADR-012](../decisions/ADR-012-context-not-quota.md); the
 part worth repeating here is the denominator:
 
 ```swift
@@ -111,6 +111,28 @@ luck. The only defensible key is the model id `system/init` named.
 
 The plan's Phase 0 note was annotated rather than deleted. It was a good call about a good
 event; it just described a gauge that the payload can't support.
+
+**And then the bar came out.** *"Have the context percentage be another little pill like the
+others with just a percentage number, no bar or chart."* Right, and the argument for putting it
+under the composer — it's the number that should change what you type next — survived exactly
+as long as it took to see it on screen. A progress bar is a shape for a quantity you watch
+move; it earns its width by making a *rate* legible. Context steps once per turn and then sits
+still. What the bar actually added was a second row of chrome and a horizontal rule that read
+as a divider.
+
+It's a chip now, beside quota, with the tokens/window detail in the tooltip where every other
+chip already keeps its detail. A **session** chip went in next to it from the same event:
+cumulative tokens, with turns and the four-way in/out/cache-write/cache-read breakdown on
+hover. Two things worth writing down about that one:
+
+- `modelUsage` is **already session-cumulative**, so the totals are assigned, not accumulated.
+  Adding to them would square the count by the third turn.
+- Turns are counted client-side. `result.num_turns` describes the run that just finished — it's
+  `2` for a forced-tool-call run — not the conversation.
+
+The headline session number is mostly cache reads, and that's left as-is rather than netted
+out. Every turn re-sends the whole conversation; it's cheaper, not free, and it draws on the
+same pool as everything else.
 
 ---
 

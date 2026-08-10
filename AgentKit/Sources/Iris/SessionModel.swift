@@ -75,8 +75,26 @@ struct SessionStats: Sendable {
     /// How much of the window the last turn actually carried: prompt tokens, cached or not.
     /// Nil until the first result lands.
     var contextTokens: Int?
+    /// Cumulative for the session, straight from `result.modelUsage` — which is itself
+    /// cumulative, so these are assigned rather than accumulated. Summed across models
+    /// because the CLI makes its own side calls and they spend the same quota.
+    var sessionInputTokens = 0
+    var sessionOutputTokens = 0
+    var sessionCacheReadTokens = 0
+    var sessionCacheCreationTokens = 0
+    /// Counted here rather than read from `result.num_turns`, which describes the run that
+    /// just finished (and is 2 for a forced-tool-call run), not the conversation.
+    var turns = 0
     var quotaStatus: String?
     var quotaResetsAt: Date?
+
+    /// Everything the session has put through a model. Cache reads are included because they
+    /// are processed tokens like any other — they're just cheaper — and leaving them out
+    /// would report a fraction of the real figure.
+    var sessionTokens: Int {
+        sessionInputTokens + sessionOutputTokens
+            + sessionCacheReadTokens + sessionCacheCreationTokens
+    }
     var thinkingTokens: Int?
     var mcpNeedingAuth: [String] = []
 }
@@ -465,6 +483,16 @@ final class SessionModel {
                     + (usage.cacheReadInputTokens ?? 0)
                     + (usage.cacheCreationInputTokens ?? 0)
             }
+            // Assigned, not accumulated: `modelUsage` already carries the session total.
+            // Adding to it would square the count by the third turn.
+            let models = r.modelUsage.values
+            stats.sessionInputTokens = models.reduce(0) { $0 + ($1.inputTokens ?? 0) }
+            stats.sessionOutputTokens = models.reduce(0) { $0 + ($1.outputTokens ?? 0) }
+            stats.sessionCacheReadTokens =
+                models.reduce(0) { $0 + ($1.cacheReadInputTokens ?? 0) }
+            stats.sessionCacheCreationTokens =
+                models.reduce(0) { $0 + ($1.cacheCreationInputTokens ?? 0) }
+            stats.turns += 1
             for denial in r.permissionDenials {
                 attachDeniedInput(denial)
             }
