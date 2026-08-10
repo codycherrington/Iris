@@ -181,6 +181,9 @@ enum GlassID {
     static let composer = "composer"
     static let sendButton = "send"
     static let statusBar = "status"
+    /// Also used as the `matchedGeometryEffect` id for the Tools button, which lives in the
+    /// title strip or the panel header depending on whether the rail is out.
+    static let toolsToggle = "tools-toggle"
     static func message(_ id: UUID) -> String { "msg-\(id)" }
     static func tool(_ id: String) -> String { "tool-\(id)" }
     /// Union id shared by the composer capsule and its send button so they read as one

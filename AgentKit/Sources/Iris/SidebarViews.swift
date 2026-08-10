@@ -7,6 +7,10 @@ import SwiftUI
 struct SidebarPanel: View {
     @Bindable var registry: SidebarRegistry
     let workingDirectory: URL
+    /// Shared with the title strip so the Tools button animates between the two positions
+    /// rather than disappearing from one and appearing in the other.
+    let namespace: Namespace.ID
+    let onToggle: () -> Void
 
     @State private var showingPicker = false
 
@@ -57,11 +61,12 @@ struct SidebarPanel: View {
             .glassEffect(Tok.Surface.interactive, in: .circle)
             .help("Add a tool")
             .disabled(registry.availableTools.isEmpty)
-            // No close button here. It used to sit at the panel's top-right and vanish with
-            // the panel, so the control that hides the rail was only reachable while the rail
-            // was showing — the button that brought it back lived somewhere else entirely,
-            // in the status bar. There is now one Tools button, in the title strip directly
-            // above this header, and it doesn't move.
+
+            // Not a second button — the *same* one that sits in the title strip when the rail
+            // is closed, moved here by `matchedGeometryEffect`. Only one of the two branches
+            // exists at a time, which is what the effect requires, and it means the control
+            // rides in on the panel and rides back out with it.
+            ToolsToggleButton(isOn: true, namespace: namespace, action: onToggle)
         }
         .padding(.horizontal, Tok.Space.base)
         .padding(.vertical, Tok.Space.snug)
@@ -81,6 +86,39 @@ struct SidebarPanel: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .padding(Tok.Space.wide)
+    }
+}
+
+// MARK: - Tools toggle
+
+/// The one control that shows and hides the rail.
+///
+/// It has two homes and is one view: beside the `+` in the panel header while the rail is
+/// out, and alone at the window's trailing edge while it isn't. A shared
+/// `matchedGeometryEffect` id carries it between them, so opening the panel looks like the
+/// rail sliding in *underneath* a button that stays put, rather than one button vanishing and
+/// another fading in somewhere else.
+struct ToolsToggleButton: View {
+    let isOn: Bool
+    let namespace: Namespace.ID
+    let action: () -> Void
+
+    /// Matches the `+` beside it. The title-strip instance is the same size on purpose —
+    /// a control that resizes as it moves reads as two controls.
+    static let side: CGFloat = 22
+
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: "sidebar.right")
+                .font(.system(size: 10, weight: .semibold))
+                .foregroundStyle(isOn ? AnyShapeStyle(Tok.Palette.agent)
+                                      : AnyShapeStyle(.secondary))
+                .frame(width: Self.side, height: Self.side)
+        }
+        .buttonStyle(.glassCircle)
+        .glassEffect(Tok.Surface.interactive, in: .circle)
+        .matchedGeometryEffect(id: GlassID.toolsToggle, in: namespace)
+        .help(isOn ? "Hide tools (⌘⌥S)" : "Show tools (⌘⌥S)")
     }
 }
 

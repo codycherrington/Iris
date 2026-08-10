@@ -12,6 +12,10 @@ struct GlassContentView: View {
     @State private var showingPersona = false
     @State private var showingSidebar = SidebarRegistry.shared.layout.isVisible
     @Namespace private var glass
+    /// Separate from `glass`, which is the Liquid Glass morphing namespace. This one carries
+    /// `matchedGeometryEffect` for chrome that changes position, and mixing the two would
+    /// mean one namespace with two unrelated meanings.
+    @Namespace private var chrome
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     /// `Tok.TypeScale.body` as an `NSFont`, so the composer's line height comes from the
@@ -35,7 +39,9 @@ struct GlassContentView: View {
 
                     if showingSidebar {
                         SidebarPanel(registry: registry,
-                                     workingDirectory: model.workingDirectory)
+                                     workingDirectory: model.workingDirectory,
+                                     namespace: chrome,
+                                     onToggle: toggleSidebar)
                             // Slides in from the edge it lives on; opacity alone made it
                             // appear to materialise on top of the transcript.
                             .transition(.move(edge: .trailing).combined(with: .opacity))
@@ -125,28 +131,24 @@ struct GlassContentView: View {
 
     // MARK: Title strip
 
-    /// The window's only draggable region, and the home of the one Tools button.
+    /// The window's only draggable region, and where the Tools button parks when the rail is
+    /// closed.
     ///
-    /// Both jobs belong together. The strip has to exist anyway — a hidden titlebar still
-    /// needs somewhere to grab the window, and after `isMovableByWindowBackground` was turned
-    /// off there was nowhere — and the button has to live somewhere that doesn't move when
-    /// the rail opens or closes. The window's trailing edge is the same place as the rail's
-    /// trailing edge, so a button pinned here reads as belonging to the panel while it's out
-    /// and stays exactly where you left it when it isn't.
+    /// The strip has to exist anyway — a hidden titlebar still needs somewhere to grab the
+    /// window, and after `isMovableByWindowBackground` was turned off there was nowhere. The
+    /// button is only *here* while the rail is hidden; when it's out, the same button (same
+    /// `matchedGeometryEffect` id) sits beside the `+` in the panel header, where it lived
+    /// before, and the panel appears to slide in beneath it.
     private var titleStrip: some View {
         HStack(spacing: 0) {
             Spacer(minLength: 0)
-            Button(action: toggleSidebar) {
-                Image(systemName: "sidebar.right")
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundStyle(showingSidebar ? Tok.Palette.agent : .secondary)
-                    .frame(width: 24, height: 24)
+            if !showingSidebar {
+                ToolsToggleButton(isOn: false, namespace: chrome, action: toggleSidebar)
             }
-            .buttonStyle(.glassCircle)
-            .glassEffect(Tok.Surface.interactive, in: .circle)
-            .help(showingSidebar ? "Hide tools (⌘⌥S)" : "Show tools (⌘⌥S)")
         }
-        .padding(.horizontal, Tok.Space.snug)
+        // The panel header's own trailing inset, so the parked position lines up with the
+        // one it animates to instead of drifting a few points sideways.
+        .padding(.trailing, Tok.Space.base)
         .frame(height: Self.titleStripHeight)
         // Behind the button, not over it: the button keeps its own clicks and the empty
         // space either side of it drags the window.

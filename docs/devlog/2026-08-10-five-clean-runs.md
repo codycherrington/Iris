@@ -147,6 +147,20 @@ There is now one, in a new title strip, pinned to the window's trailing edge —
 as the rail's trailing edge, so it reads as belonging to the panel while the panel is out and
 doesn't move when it isn't.
 
+**Amended after seeing it.** "One button that doesn't move" was the wrong target. Cody wanted
+it back beside the `+` when the rail is out — which is where it had always been — and alone at
+the trailing edge when it isn't. That's still one control, it just has two homes, and a shared
+`matchedGeometryEffect` id carries it between them so the rail appears to slide in beneath a
+button rather than one button vanishing while another fades in. The parked position uses the
+panel header's own trailing inset (`Tok.Space.base`) so the two ends of the animation line up
+horizontally instead of drifting a few points sideways.
+
+Worth noting what *wasn't* built: making the button not move at all would mean hoisting the
+panel's header row into the title strip, which splits the rail into two independently animated
+pieces. This repo already has a note about that failure mode — a label and its dot driven by
+separate modifiers drift out of phase — so one piece that moves beat two pieces that have to
+agree.
+
 The drag problem was `window.isMovableByWindowBackground = true`, set in Phase 3 to make a
 titlebar-less window movable. It grants the *whole* window, and the decision is made before a
 drag can be recognised as a text selection — so dragging across a message to select it moved
