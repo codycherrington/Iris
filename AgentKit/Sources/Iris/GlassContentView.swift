@@ -494,11 +494,14 @@ struct GlassStatusBar: View {
                 // slow timer and on demand rather than continuously.
                 Button(action: onRefreshQuota) {
                     HStack(spacing: 4) {
-                        Text("quota").foregroundStyle(.tertiary)
+                        Text("quota:").foregroundStyle(.tertiary)
                         if let five = stats.quota?.fiveHour {
                             Text("\(Int(five.usedPercent.rounded()))%")
                                 .foregroundStyle(quotaTint(five.usedPercent))
                             if let left = five.timeRemaining {
+                                // The dash is a separator, not a minus: percent used and time
+                                // until reset are two independent facts about one window.
+                                Text("-").foregroundStyle(.tertiary)
                                 Text(remaining(left)).foregroundStyle(.tertiary)
                             }
                         } else if stats.quotaProbeRunning {
