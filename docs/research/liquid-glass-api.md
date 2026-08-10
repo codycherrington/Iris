@@ -83,6 +83,42 @@ replaced by dimming the existing label to 35% on a 1.2 s ease (`Breathing` in
 moving object subtracts. Group co-animated elements under one modifier, too — driven
 separately, a label and its dot drift out of phase.
 
+## `.scaleEffect` around `.glassEffect` slides the content inside the shape (learned 2026-08-09)
+
+The send button was smaller while the composer was empty, expressed as `.scaleEffect(0.9)`
+applied *after* `.glassEffect(…, in: .circle)`. The arrow inside it rendered visibly off-centre —
+but only in that state.
+
+Measured off screenshots of the running app (locate the white glyph, scan outward to the glass
+circle's edge, compare centres):
+
+| state | glass circle | arrow offset from **circle** centre |
+|---|---|---|
+| empty, `.scaleEffect(0.9)` | 36 pt | **+1.75 pt right, +2.25 pt down** |
+| with text, scale 1.0 | 39 pt | +0.00, +0.50 pt |
+
+The obvious explanation — 42 × 0.9 = 37.8 pt puts the glyph on a fractional pixel — is wrong by
+a factor of about 36. Rendering the same glyph alone under the same scale moves it **0.062 pt**.
+
+The glyph isn't what moves. **The content and the glass shape don't scale about the same point.**
+A transform applied outside `glassEffect` resolves against different geometry than the shape
+does, so the content slides within its own background.
+
+**Rule: don't apply geometry transforms outside `glassEffect`.** Express size changes as frame
+changes so content and shape stay in one coordinate space:
+
+```swift
+// not .scaleEffect(hasText ? 1.0 : 0.9)
+private var side: CGFloat { hasText || isBusy ? 42 : 38 }
+```
+
+Both resting sizes are whole points, which also keeps the stroke on the pixel grid. The same
+caution presumably applies to `.rotationEffect` and `.offset` outside a glass shape — untested,
+but the mechanism would be identical.
+
+Full write-up, including the unrelated glyph-centering error that preceded this one, is in
+`sf-symbol-glyph-centering.md`.
+
 ## Practical notes
 
 - Set the deployment target to macOS 26 for the app; `AgentKit` itself is UI-free and targets

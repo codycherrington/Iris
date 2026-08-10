@@ -334,6 +334,44 @@ total composure. A nice, concrete version of a general point: **a structured-out
 only constraint the model is actually held to — prose in a description is a request.** Still
 unfixed as of `63d6b70`, and written down with the evidence rather than quietly patched.
 
+## The through-line: measure it, don't look at it
+
+By 2026-08-09 this had happened four times, and it is the strongest single thread in the project.
+
+| What looked true | What measuring said |
+|---|---|
+| The app is slow — it feels stalled | Dispatch was **43 ms**. The stall was a UI gap: nothing rendered until the first token. A pure benchmark would have passed and shipped a broken-feeling app. |
+| Sidebar tools are cheap because they're isolated | Isolation isn't cheapness. An unstripped one-shot call rebuilt **18,854 cache-creation tokens** and took **32.5 s**, silently on Opus. Stripped: **0 tokens, 6.6 s**. |
+| `arrow.up`'s ink sits off-centre, so it needs a nudge | It measures **(0.000, 0.000)** — dead centre. The nudge was *creating* the problem it claimed to fix, and had been documented as a real finding for a day. |
+| Auth can't be known until the first turn | True of `system/init` — verified by holding a session open 8 s for zero output. But `claude auth status --json` answers it from local credentials with no model call. |
+
+The pattern isn't "measure more". It's narrower and more useful than that:
+
+**Every one of these had a confident, plausible explanation attached before anyone measured.**
+Three of the four explanations were written down — two of them in this repo's own research
+notes, presented as findings. The wrong explanations were not careless; they were *reasonable*,
+which is exactly what made them durable.
+
+Three habits fell out of it, each learned the expensive way:
+
+1. **Include a case whose answer you already know.** The first attempt at measuring glyph
+   centering had a bug that made every symbol report the same wrong offset. It was caught in
+   minutes only because `stop.fill` is a symmetric square that *must* measure zero. Without that
+   control case it would have produced a table of confident wrong numbers — and they were large
+   enough to look meaningful.
+2. **Measure the pipeline you actually ship.** The second attempt was correctly implemented and
+   still wrong, because it rasterized an `NSImage` while SwiftUI lays the same symbol out as a
+   glyph on a text baseline. Right method, wrong box. The third attempt rendered the real view.
+3. **A refuted note is worth more than a deleted one.** `sf-symbol-glyph-centering.md` now opens
+   by stating its original conclusion was wrong, and preserves it. Its most useful sentence is
+   the one explaining that the old takeaway — *"check against a screenshot"* — is precisely what
+   kept the error alive, because checking against a screenshot is how the bad offset got there.
+
+The most uncomfortable version of this: on 2026-08-09 a commit fixed a `Decodable` bug in one
+file and shipped the identical bug two files away, with a comment asserting the behaviour it had
+just disproved. Knowing a thing and applying it are different acts, and the gap between them is
+about two hundred lines.
+
 ## Results
 
 Phase 2's gate: **PASS** — 43 ms dispatch with the full glass UI attached, against 7–20 ms

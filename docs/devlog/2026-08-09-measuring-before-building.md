@@ -660,3 +660,12 @@ first line of UI was written.
 
 > Measure first, and the measurement stops being a verdict on your design and starts being an
 > input to it.
+
+---
+
+**Continues in [`2026-08-09-three-wrong-explanations.md`](2026-08-09-three-wrong-explanations.md)**
+— six more commits the same evening (`f6251e2` → `3a48e41`), covering the loose ends listed
+above, app-wide button hit areas, model/effort selection, pre-flight auth via
+`claude auth status --json`, question cards, the composer's own `NSTextView`, slash-command
+handling and the app icon. Separate file because the subject changes from cost and architecture
+to the app becoming usable; the reasoning is at the bottom of that entry.

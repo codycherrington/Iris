@@ -266,6 +266,20 @@ Only now does it get beautiful.
   registry's unknown-id filtering is the piece worth extracting and testing.)*
 - **File path picker** — `NSOpenPanel`, plus a fuzzy in-app finder; inject path into composer or copy.
   *(Still to build as of 2026-08-09.)*
+
+Phase 4 also absorbed four things the plan never listed, all driven by using the app rather than
+by the design:
+
+- **Question cards** (ADR-010) — `AskUserQuestion` is unavailable in print mode, so questions
+  travel as a fenced block in the assistant's text and come back as ordinary user turns.
+- **Model and effort picker** — `--model` / `--effort` are launch arguments, so the status chip
+  restarts the session the way the persona does. Defaults to Sonnet 5 at medium.
+- **Pre-flight auth** (`claude auth status --json`) — `system/init` is per-turn, so a fresh window
+  knew nothing about its own auth until the first message. Now answered at launch from local
+  credentials with no model call.
+- **Slash-command handling** — skill commands already worked; built-in CLI commands are swallowed
+  silently by print mode. `/clear`, `/model`, `/effort` are handled locally; anything else that
+  vanishes is detected by behaviour and explained inline.
 - **Project switcher** — sets the subprocess `cwd`, tracks recents, shows git branch + dirty state.
   *(Still to build as of 2026-08-09. The sidebar already routes its working directory through a
   `\.sidebarWorkingDirectory` environment value rather than capturing it, specifically so this can

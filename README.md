@@ -20,10 +20,10 @@ that's a bug at the top of the list.
 | Phase | What | State |
 |---|---|---|
 | 0 | Spike: auth, streaming, perf, permissions | ✅ **GO** — see `docs/devlog/2026-08-07-inception.md` |
-| 1 | `AgentKit` headless core | ✅ bridge, decoder, one-shot runner, 37 tests |
+| 1 | `AgentKit` headless core | ✅ bridge, decoder, one-shot runner, auth probe, question protocol, 48 tests |
 | 2 | Minimal chat UI — perf gate | ✅ **PASS** — see `docs/runs/2026-08-08-phase2-perf-gate.md` |
 | 3 | Liquid Glass design system | ✅ dark theme, glass transcript, composer |
-| 4 | Persona wizard, sidebars, file picker, project switcher | 🟡 persona wizard (ADR-007), sidebar runner (ADR-008) and the tool system + four tools (ADR-009) done; file picker and project switcher next |
+| 4 | Persona wizard, sidebars, file picker, project switcher | 🟡 persona wizard (ADR-007), sidebar runner (ADR-008), tool system + four tools (ADR-009), question cards (ADR-010), model/effort picker, pre-flight auth; **file picker and project switcher next** |
 | 5 | Subagent tree, session library, permission UI | ⬜ |
 
 The authoritative design is **`docs/plan.md`**. Read the relevant phase before implementing.

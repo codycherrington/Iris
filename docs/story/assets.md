@@ -172,3 +172,15 @@ moment is gone once it happens uncaptured.
   before either was needed or fixed. The 15/10 one has a real expiry — tightening the schema is
   the correct next change and it destroys the shot. First time this list got ahead of the loss
   instead of recording it afterwards.
+
+- **New capture targets (2026-08-09, evening):**
+  - The **question card** in the transcript — this is the most demo-able single feature in the
+    app. Ask something with a genuine either/or (the caching question in `QuestionProtocolTests`
+    reproduces it) and screenshot the card, then the answer landing as a normal user turn.
+  - The **app icon in the Dock and Spotlight**, now that `make install` puts a real bundle in
+    `/Applications`. First time Iris looks like software rather than a build artifact.
+  - **`/context` producing nothing**, if anyone wants the before-shot for the slash-command
+    fix — revert `0a557f0`, type `/context`, and the turn completes with an empty transcript.
+    Expires the moment that commit is in the build.
+  - The **send button's two states side by side**, which is the payoff shot for the arrow story:
+    the measurement table means the claim "both are centred" is checkable, not asserted.

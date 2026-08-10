@@ -41,12 +41,34 @@ struct SidebarLayout: Codable, Equatable, Sendable {
     var enabled: [String]
     /// The rail is out by default — the tools are the reason this app isn't a terminal, so
     /// hiding them on first run buries the feature behind a shortcut nobody's been told.
-    /// Decoded with a default so layouts written before this field existed still open.
     var isVisible: Bool = true
 
     /// Notes first because it costs nothing and is useful immediately; the prompt improver
     /// next because it's the one that most often earns its 9 seconds.
     static let `default` = SidebarLayout(enabled: ["notes", "prompt-improver"])
+
+    init(enabled: [String], isVisible: Bool = true) {
+        self.enabled = enabled
+        self.isVisible = isVisible
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case enabled, isVisible
+    }
+
+    /// Hand-written for the same reason as `AgentQuestion`: **Swift's synthesized `Decodable`
+    /// ignores default values.** `isVisible = true` above does not make the key optional at
+    /// decode time — a `sidebar.json` written before the field existed throws, and the
+    /// registry's `try?` turns that into a silent reset to the default layout, quietly
+    /// discarding whatever the user had arranged.
+    ///
+    /// Worth noting this shipped in the same commit that fixed the identical mistake in
+    /// `AgentQuestion`, with a comment asserting the behaviour that commit disproved.
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        enabled = try container.decode([String].self, forKey: .enabled)
+        isVisible = try container.decodeIfPresent(Bool.self, forKey: .isVisible) ?? true
+    }
 }
 
 // MARK: - Registry
