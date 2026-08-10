@@ -324,6 +324,66 @@ mechanism and wrong about the deadline — it predicted the shot would vanish wh
 tightened, and it vanished when the field was deleted for an unrelated reason. The fixture is
 committed, so the evidence survives; only the framing was lost.
 
+## A sidebar tool with no model in it
+
+Last thing of the day, after a shortlist of tool ideas that Cody turned down wholesale: a
+YouTube transcript fetcher. He pastes a link, gets the transcript on the clipboard, and takes
+it somewhere else to discuss. The `youtube-transcript` skill already does this for the
+*conversation*; the point of the tool is to get 40,000 words to the clipboard without routing
+them through a turn first.
+
+It's the second tool that spends no quota and the first that does real work anyway — it drives
+`PodcastInsights/tokenizer.py` as a subprocess. Worth stating plainly because the rail had
+quietly become "small Haiku calls, plus Notes", and nothing about `SidebarTool` requires a
+model.
+
+Two design calls:
+
+- **Copy-first.** The rail is 320 pt and a podcast transcript is tens of thousands of words. No
+  layout makes reading it there sensible, so the preview box is evidence the right video came
+  back and the Copy button is the product. Word count, video id, and whether it came off disk
+  or off the network sit above it; there's a reveal-in-Finder beside the copy.
+- **The path is a setting, not a constant.** Hardcoding `~/Documents/Development/Projects/
+  PodcastInsights` would make the tool dead on any other machine, and dead in a way that reads
+  as a bug. It defaults there, persists an override, and when the install is missing it says
+  *which* piece — `.venv/bin/python` or `tokenizer.py` — and offers a Locate button. The
+  interpreter is the venv's on purpose: the system `python3` fails on importing
+  `youtube_transcript_api`, with an error that says nothing about the real cause.
+
+### The docs were wrong about the one thing worth parsing
+
+The skill documents the success line as:
+
+```
+saved transcripts/single videos/<id>.txt
+```
+
+A live run prints:
+
+```
+exists /Users/…/PodcastInsights/transcripts/single videos/dQw4w9WgXcQ.txt
+```
+
+**Absolute, not relative** — the script builds it from `Path(__file__).resolve().parent`. The
+parser had been written against the documented form, with tests passing, and would have worked
+anyway: resolving a printed path against the project root ignores the base when the path is
+absolute. Fine by luck rather than by design, and the doc comment claiming "relative to the
+project root, as printed" would have been a small lie sitting in the codebase indefinitely.
+Both forms are now pinned by tests, and the doc block says it came from a live run.
+
+The other thing that only running it tells you: **every handled outcome exits 0**, failures
+included — captions disabled, no transcript, video unavailable. Only an unparseable link exits
+non-zero, as a traceback on stderr. So exit status is nearly useless here and the printed line
+is the whole contract, which is why the parse checks the line first and falls back to the status
+only when nothing matched. A run that prints something unrecognised gets its own case, carrying
+what it actually said — if the script's output format changes, whoever reads that message needs
+the real line, not a guess.
+
+One small thing the parse gets right on purpose: it takes the path by dropping the `saved `
+prefix rather than splitting on spaces. `single videos` has a space in it, and a
+`split(separator: " ")[1]` yields `transcripts/single` — a path that doesn't exist, surfacing
+much later as a file-read failure with no connection to its cause. There's a test named for it.
+
 ## Not verified
 
 The Tools button sits inside the band where a hidden titlebar still draws its traffic lights.

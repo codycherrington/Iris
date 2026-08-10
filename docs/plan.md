@@ -264,7 +264,9 @@ Only now does it get beautiful.
   *(**Done 2026-08-09, `63d6b70`.** `SidebarTool.swift` + `SidebarViews.swift`: a class-bound
   `SidebarTool` protocol, a `SidebarRegistry` owning one long-lived instance of each tool, a
   layout persisted to `~/Library/Application Support/Iris/sidebar.json`, a right rail toggled
-  with ⌘⌥S, and all four tools — notes, prompt improver, SQL reviewer, bug checker. Tools are
+  with ⌘⌥S, and all four tools — notes, prompt improver, SQL reviewer, bug checker (joined
+  2026-08-10 by a YouTube transcript fetcher, the first tool that does real work with no model
+  call at all — it drives the PodcastInsights scraper as a subprocess). Tools are
   classes because each holds live state that must survive being hidden or collapsed; the two
   review tools are one class with two briefs; the three model-backed tools share one
   `OneShotRunner`. See **ADR-009**. The ~9 s latency did the designing: the pending state names

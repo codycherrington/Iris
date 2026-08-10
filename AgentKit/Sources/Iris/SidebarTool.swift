@@ -96,6 +96,7 @@ final class SidebarRegistry {
         all = tools ?? [
             NotesTool(),
             PromptImproverTool(),
+            TranscriptTool(),
             ReviewTool.sqlReviewer(),
             ReviewTool.bugChecker(),
         ]
