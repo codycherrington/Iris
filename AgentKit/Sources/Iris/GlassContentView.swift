@@ -65,6 +65,9 @@ struct GlassContentView: View {
                                    personas.reload()
                                    showingPersona = true
                                },
+                               onRefreshQuota: {
+                                   Task { await model.refreshQuota(force: true) }
+                               },
                                onApplySettings: { next in
                                    sessionSettings.save(next)
                                    Task { await model.applySettings(next) }
@@ -414,6 +417,7 @@ struct GlassStatusBar: View {
     let namespace: Namespace.ID
     let onPickDirectory: () -> Void
     let onEditPersona: () -> Void
+    let onRefreshQuota: () -> Void
     let onApplySettings: (SessionSettings) -> Void
 
     @State private var showingModelPicker = false
@@ -485,11 +489,36 @@ struct GlassStatusBar: View {
                     ModelEffortPicker(settings: settings, onApply: onApplySettings)
                 }
 
-                if let quota = stats.quotaStatus {
-                    readout(help: quotaHelp) {
-                        Text(quotaLabel(quota)).foregroundStyle(.secondary)
+                // The one number Cody actually asked for, and the only chip here that is a
+                // button: the reading is a scrape that costs a turn, so it refreshes on a
+                // slow timer and on demand rather than continuously.
+                Button(action: onRefreshQuota) {
+                    HStack(spacing: 4) {
+                        Text("quota").foregroundStyle(.tertiary)
+                        if let five = stats.quota?.fiveHour {
+                            Text("\(Int(five.usedPercent.rounded()))%")
+                                .foregroundStyle(quotaTint(five.usedPercent))
+                            if let left = five.timeRemaining {
+                                Text(remaining(left)).foregroundStyle(.tertiary)
+                            }
+                        } else if stats.quotaProbeRunning {
+                            Text("reading…").foregroundStyle(.tertiary)
+                        } else {
+                            Text("—").foregroundStyle(.tertiary)
+                        }
+                        if stats.quotaProbeRunning, stats.quota != nil {
+                            ProgressView().controlSize(.mini).scaleEffect(0.6)
+                                .frame(width: 8, height: 8)
+                        }
                     }
+                    .lineLimit(1)
+                    .fixedSize()
+                    .padding(.horizontal, Tok.Space.snug)
+                    .padding(.vertical, 5)
                 }
+                .buttonStyle(.glassChip)
+                .glassEffect(Tok.Surface.interactive, in: .capsule)
+                .help(quotaHelp)
 
                 // Context and session sit beside quota rather than above the status bar
                 // because they answer the same kind of question — what has this session
@@ -594,16 +623,45 @@ struct GlassStatusBar: View {
             .help(help)
     }
 
-    private func quotaLabel(_ status: String) -> String {
-        guard let resets = stats.quotaResetsAt else { return status }
-        let mins = max(0, Int(resets.timeIntervalSinceNow / 60))
-        return mins >= 60 ? "quota \(mins / 60)h\(mins % 60)m" : "quota \(mins)m"
+    private func remaining(_ interval: TimeInterval) -> String {
+        let mins = max(0, Int(interval / 60))
+        return mins >= 60 ? "\(mins / 60)h\(mins % 60)m" : "\(mins)m"
+    }
+
+    /// Same thresholds as context, for the same reason — they mark where behaviour should
+    /// change, not where a designer wanted a colour.
+    private func quotaTint(_ percent: Double) -> Color {
+        switch percent {
+        case ..<70: return Tok.Palette.approve
+        case ..<90: return Tok.Palette.warn
+        default: return Tok.Palette.danger
+        }
     }
 
     private var quotaHelp: String {
-        let status = stats.quotaStatus ?? "unknown"
-        return "Rate-limit window: \(status). The CLI reports a state and a reset time and no "
-            + "figure for how much is left, so this is a countdown, not a gauge."
+        var lines: [String] = []
+        if let five = stats.quota?.fiveHour {
+            lines.append(String(format: "5-hour window: %.0f%% used", five.usedPercent)
+                + (five.timeRemaining.map { ", \(remaining($0)) left" } ?? ""))
+        }
+        if let seven = stats.quota?.sevenDay {
+            lines.append(String(format: "7-day window: %.0f%% used", seven.usedPercent)
+                + (seven.timeRemaining.map { ", \(remaining($0)) left" } ?? ""))
+        }
+        if let captured = stats.quota?.capturedAt {
+            let age = Int(Date().timeIntervalSince(captured) / 60)
+            lines.append("Read \(age < 1 ? "just now" : "\(age)m ago") — click to refresh.")
+        }
+        if let error = stats.quotaProbeError {
+            lines.append("Last probe failed: \(error)")
+        }
+        if lines.isEmpty {
+            lines.append("Reading the account's rate-limit usage…")
+        }
+        // Said plainly, because it's surprising: the only source for these numbers is the
+        // interactive CLI's status line, so getting them costs a small turn.
+        lines.append("These come from a short probe session — print mode never reports them.")
+        return lines.joined(separator: "\n")
     }
 
     // MARK: Context

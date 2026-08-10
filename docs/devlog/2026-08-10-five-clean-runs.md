@@ -134,6 +134,66 @@ The headline session number is mostly cache reads, and that's left as-is rather 
 out. Every turn re-sends the whole conversation; it's cheaper, not free, and it draws on the
 same pool as everything else.
 
+### And then the number that didn't exist turned out to exist
+
+*"Wrong session. That yellow bar in the screenshot. How much of my limit I've met before my
+usage reset. That's what I want to see."* — with a photo of his own terminal status line:
+`5h [████░░] 65% 2h 47m left · $77.80 · 7d 55%`.
+
+Everything written above about quota is still true and was still the wrong conclusion. Print
+mode has no percentage — re-verified live rather than trusted from the fixture, and the full
+list of event types a `-p` session emits was enumerated to be sure. What it missed is that
+**print mode is not the only way to ask.** The numbers are sitting in the JSON payload the CLI
+pipes to a `statusLine` command:
+
+```json
+"rate_limits": {
+  "five_hour": { "used_percentage": 72, "resets_at": 1786342800 },
+  "seven_day": { "used_percentage": 55.00000000000001, "resets_at": 1786413600 }
+}
+```
+
+So `QuotaProbe` borrows the mechanism: a short interactive session under a pty, with
+`statusLine` overridden to a script that dumps its stdin, killed the moment the payload
+contains `rate_limits`. Three constraints, each found by hitting it:
+
+- **`statusLine` is never invoked in print mode** (tested directly, not assumed).
+- **Interactive needs a pty** — otherwise `script: tcgetattr/ioctl: Operation not supported on
+  socket`. Hence `/usr/bin/script -q /dev/null`.
+- **`rate_limits` is absent until the session has made an API call.** An idle session's payload
+  has no such key. The numbers come from response headers, so the probe has to say one word and
+  wait for a later render.
+
+And a fourth that isn't about the mechanism: interactive sessions won't start in an untrusted
+folder, and a trust prompt in an unattended pty is a hang. Iris reads
+`~/.claude.json` → `projects[path].hasTrustDialogAccepted` to find a folder the user has
+already trusted. It does not flip the flag and does not answer the prompt — trusting a
+directory grants file access, and that decision isn't Iris's to make.
+
+Cost, measured both ways:
+
+| launch | cache creation | in / out | wall |
+|---|---|---|---|
+| interactive defaults | 7,555 | 10 / 166 | ~5 s |
+| stripped, as shipped | **0** | 1,132 / 133 | ~4 s |
+
+The flag interaction that makes the second row possible: **`--setting-sources ''` does not
+disable `--settings`.** The status-line override survives while `CLAUDE.md`, skills, plugins and
+MCP config are dropped. Tested, because if it had gone the other way the probe would pay 7.5k
+tokens every reading.
+
+**The lesson, and it's the sharper one of the day:** "the data isn't available" was really "the
+data isn't available *through the interface I was already using*." Those are different claims,
+and the first one had already been written into an ADR and the plan. Both now carry the
+correction rather than a quiet edit. Refusing to *invent* a quota percentage was still right —
+it's why the number on screen today is measured and costs a turn, rather than estimated and
+free.
+
+It spends what it measures, so: read at launch, then at most every 15 minutes, click the chip
+to force a refresh, and the tooltip shows the reading's age rather than implying it's live.
+`make harness ARGS="-q"` runs it standalone. Full write-up in
+[`docs/research/quota-percentages.md`](../research/quota-percentages.md).
+
 ---
 
 ## Return sends, and the two things that breaks

@@ -11,6 +11,7 @@ Things learned that are worth citing later. Written for a future reader who wasn
 | `observable-state-in-swiftui.md` | `@Bindable` is for writing, not for observing. A wrapper object constructed inside `body` defeats `@Observable` tracking entirely — found and fixed while building the sidebar (2026-08-09). |
 | `sf-symbol-glyph-centering.md` | **Its original conclusion was wrong and the note says so.** `arrow.up` measures dead centre; the hand-tuned offset was creating the problem it claimed to fix. Three measurements, two of them wrong, and why a known-answer control case is what caught it. |
 | `claude-auth-status.md` | `claude auth status --json` answers the subscription question from local credentials with **no model call** — the only way to know a session's auth before `system/init` arrives on the first turn. Observed payloads with and without a key in the environment. |
+| `quota-percentages.md` | The `5h 72% · 7d 55%` figures exist **only** in the payload the CLI pipes to a `statusLine` command — never in print mode, no `usage` subcommand, nothing cached on disk. How `QuotaProbe` borrows that surface (pty, one real turn, a trusted directory), and why the stripped launch costs 0 cache-creation tokens instead of 7,555. |
 | `voice-mode-feasibility.md` | Considered and **deferred** 2026-08-09, not planned. Realtime speech-to-speech models replace the agent loop entirely; only a cascaded STT → `send()` → TTS pipeline would preserve Iris's architecture. |
 
 Add a file whenever you learn something non-obvious about the protocol, SwiftUI/Liquid Glass

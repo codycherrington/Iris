@@ -6,10 +6,12 @@ import Foundation
 ///   make harness              interactive
 ///   make harness ARGS="-b"    scripted 3-turn benchmark (no input needed)
 ///   make harness ARGS="-s"    one live OneShotQuery call; prints its token cost
+///   make harness ARGS="-q"    one live QuotaProbe; prints the rate-limit percentages
 
 let args = CommandLine.arguments.dropFirst()
 let benchmark = args.contains("-b") || args.contains("--benchmark")
 let sidebarProbe = args.contains("-s") || args.contains("--sidebar")
+let quotaProbe = args.contains("-q") || args.contains("--quota")
 
 let config = AgentConfiguration(
     workingDirectory: URL(fileURLWithPath: FileManager.default.currentDirectoryPath),
@@ -37,6 +39,36 @@ do {
     print(dim("  auth: probe failed — \(error)"))
 }
 print("")
+
+// MARK: - Quota probe
+
+if quotaProbe {
+    print(bold("quota probe") + dim(" — borrows the interactive status line; costs one turn\n"))
+    if let dir = QuotaProbe.trustedDirectory(preferring: config.workingDirectory) {
+        print(dim("  running in       ") + dir.path)
+    }
+    do {
+        let clock = ContinuousClock()
+        var snapshot: QuotaSnapshot!
+        let wall = try await clock.measure {
+            snapshot = try await QuotaProbe.check(preferring: config.workingDirectory)
+        }
+        func line(_ label: String, _ window: QuotaWindow?) {
+            guard let window else { print(dim("  \(label)") + "—"); return }
+            let left = window.timeRemaining.map {
+                dim("  ·  \(Int($0 / 3600))h\(Int($0.truncatingRemainder(dividingBy: 3600) / 60))m left")
+            } ?? ""
+            print(dim("  \(label)") + String(format: "%.0f%%", window.usedPercent) + left)
+        }
+        line("5-hour          ", snapshot.fiveHour)
+        line("7-day           ", snapshot.sevenDay)
+        print(dim("  wall             ") + "\(wall)")
+    } catch {
+        print(red("quota probe failed: \(error)"))
+        exit(1)
+    }
+    exit(0)
+}
 
 // MARK: - Sidebar probe
 

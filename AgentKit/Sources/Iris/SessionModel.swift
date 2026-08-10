@@ -87,6 +87,13 @@ struct SessionStats: Sendable {
     var turns = 0
     var quotaStatus: String?
     var quotaResetsAt: Date?
+    /// The real thing: how much of the rolling limit has been spent. Scraped, not streamed —
+    /// see `QuotaProbe` for why there is no cheaper source.
+    var quota: QuotaSnapshot?
+    var quotaProbeRunning = false
+    /// Why the last probe failed, if it did. Shown rather than swallowed: "no reading" and
+    /// "the probe is broken" are different states and only one of them is the user's problem.
+    var quotaProbeError: String?
 
     /// Everything the session has put through a model. Cache reads are included because they
     /// are processed tokens like any other — they're just cheaper — and leaving them out
@@ -195,6 +202,9 @@ final class SessionModel {
         // Fire and forget: the probe is fast, but the session must not wait on it. Its only
         // job is to fill the status indicator before the first turn does it properly.
         Task { [weak self] in await self?.probeAuth() }
+        // Separate task, and not awaited either: this one takes ~4 s and spends a turn, so it
+        // must never be in the way of the first thing the user types.
+        Task { [weak self] in await self?.refreshQuota() }
         consumer = Task { [weak self] in
             for await event in stream {
                 await self?.handle(event, from: bridge)
@@ -207,10 +217,40 @@ final class SessionModel {
     /// `SessionStats()` wiped the model and effort back to "—", which is wrong: those are
     /// launch arguments and stay true across a directory change.
     private func resetStats() {
+        // The rate-limit reading survives: it describes the account, not the session, so
+        // clearing the transcript shouldn't cost another probe to learn the same number.
+        let quota = stats.quota
         stats = SessionStats()
+        stats.quota = quota
         stats.configuredModel = ModelChoice.label(forReportedModel: settings.model)
         stats.configuredEffort = settings.effort.rawValue
     }
+
+    /// Read the account's rate-limit percentages.
+    ///
+    /// Costs a real (small) turn against the pool it's measuring, so it is not on a fast
+    /// timer and never runs twice at once. `force` is the user clicking the chip; without it
+    /// a reading younger than `quotaMaxAge` is left alone.
+    func refreshQuota(force: Bool = false) async {
+        guard !stats.quotaProbeRunning else { return }
+        if !force, let existing = stats.quota,
+           Date().timeIntervalSince(existing.capturedAt) < Self.quotaMaxAge { return }
+
+        stats.quotaProbeRunning = true
+        defer { stats.quotaProbeRunning = false }
+        do {
+            stats.quota = try await QuotaProbe.check(preferring: workingDirectory)
+            stats.quotaProbeError = nil
+        } catch {
+            // Deliberately not fatal and deliberately not silent. The conversation is
+            // unaffected by a failed probe; the chip just has nothing to say.
+            stats.quotaProbeError = String(describing: error)
+        }
+    }
+
+    /// Fifteen minutes. The five-hour window moves slowly enough that a fresher reading isn't
+    /// worth another turn, and this is the number to change if that judgement is wrong.
+    static let quotaMaxAge: TimeInterval = 15 * 60
 
     /// Fill in the auth indicator before the first turn can.
     ///

@@ -165,10 +165,13 @@ cannot deadlock the UI. `--permission-mode acceptEdits` auto-approves cleanly fo
   quota gauge with a reset countdown. Arrives first, before `system/init`.
   **Amended 2026-08-10:** "gauge" overstates it. The payload has a state, a deadline and two
   overage flags — **no numerator and no denominator** — and there is no `claude usage`
-  subcommand to get them from either. It supports a status chip with a countdown, which is
-  what Iris shows, and cannot support a percentage without inventing one. The bar under the
-  composer measures **context** instead; see
+  subcommand to get them from either. See
   [ADR-012](decisions/ADR-012-context-not-quota.md).
+  **Amended again, same day:** the percentages *do* exist locally, just not in print mode —
+  they're in the payload the CLI pipes to a `statusLine` command
+  (`rate_limits.five_hour.used_percentage`). `QuotaProbe` reads them by running a short
+  interactive session under a pty; ~1.1k tokens and 4 s per reading, zero cache creation. Full
+  write-up in [`docs/research/quota-percentages.md`](research/quota-percentages.md).
 - **`system/thinking_tokens`** → `{estimated_tokens, estimated_tokens_delta}`, streamed live. Drives
   a genuine thinking-progress indicator instead of a spinner.
 - **`system/status`**, and `system/permission_denied` (above).

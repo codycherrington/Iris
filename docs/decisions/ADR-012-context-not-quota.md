@@ -88,6 +88,33 @@ horizontal rule that read as a divider. As a chip it costs nothing, sits beside 
 it belongs next to, and the tokens/window detail moves into the tooltip where the same detail
 already lives for every other chip.
 
+## Postscript: quota got its percentage after all (2026-08-10, same day)
+
+This ADR's central claim — *the CLI does not report a quota percentage* — was true of every
+surface it examined, and it examined the wrong set. Cody pointed at his own terminal status
+line showing `5h 65% 2h 47m left · 7d 55%` and asked for exactly that.
+
+The numbers are real and local. They live in the JSON payload the CLI pipes to a `statusLine`
+command, under `rate_limits.five_hour.used_percentage` — a surface that is **interactive-only**
+and that a `-p` session never invokes. Everything this ADR says about print mode still holds;
+what it missed is that print mode isn't the only way to ask.
+
+`QuotaProbe` gets them by borrowing the mechanism: a short interactive session under a pty,
+with `statusLine` overridden to dump its stdin, killed as soon as the payload contains
+`rate_limits`. Stripped the same way the sidebar tools are, it costs **1,132 in / 133 out, zero
+cache creation, ~4 s**. Full investigation, including the three constraints that shape it and
+the flag interaction that keeps the cold start at zero, is in
+[`docs/research/quota-percentages.md`](../research/quota-percentages.md).
+
+**The reasoning below stands; the conclusion narrowed.** Refusing to *invent* a quota
+percentage was right, and it is exactly why the number now on screen is a measured one that
+costs a turn rather than an estimate that costs nothing. The lesson is about scope: "the data
+isn't available" was really "the data isn't available *through the interface I was already
+using*", and those are different claims. The second one is worth checking before it gets
+written down as the first.
+
+Context stays where it is. The two chips answer different questions and both are now measured.
+
 ## Consequences
 
 - **The plan's Phase 0 note is now half wrong** and has been annotated rather than deleted.
