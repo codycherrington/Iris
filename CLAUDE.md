@@ -66,6 +66,22 @@ before implementing anything.
 `AgentKit/Tests/AgentKitTests/Fixtures/`. If they fail after a `claude` upgrade, the protocol
 drifted — investigate before "fixing" the test. Recapture instructions are in QUICKSTART.md.
 
+## Versioning
+
+**Bump `VERSION` in the Makefile on every push**, by branch: `dev` **+0.0.1**, `test`
+**+0.1.0**, `main` **+1.0.0**. A bump resets everything below it — a `test` push from 0.0.23
+is `0.1.0`, not `0.1.23`. Patch does **not** carry: 0.0.9 → 0.0.10, because rolling into
+0.1.0 would collide with what a `test` push means. `BUILD` tracks the cumulative patch count
+so it never goes backwards when a minor or major reset zeroes the patch.
+
+This **overrides the `git-workflow` skill**, which bumps only on the `dev`→`test` promotion
+and forbids it on routine `dev` commits. Cody's rule wins here; the skill is unchanged for
+other repos.
+
+The version lives only in the Makefile (`VERSION` / `BUILD`, substituted into the generated
+Info.plist) — there is no `package.json`, so `npm version` doesn't apply. Tag `test` and
+`main` promotions.
+
 ## Documentation is a deliverable
 
 This project is being documented end-to-end for a portfolio writeup / YouTube video.

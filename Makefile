@@ -16,10 +16,24 @@ ICON    := Resources/AppIcon.icns
 # Where `make install` puts a real, launchable copy.
 INSTALLED := /Applications/Iris.app
 
+# The version, in one place.
+#
+# Bumped on every push, by branch: `dev` +0.0.1, `test` +0.1.0, `main` +1.0.0, with a bump
+# resetting everything below it (a `test` push from 0.0.23 is 0.1.0, not 0.1.23). Patch does
+# not carry — 0.0.9 goes to 0.0.10, because rolling into 0.1.0 would collide with what a
+# `test` push means.
+#
+# It lives here rather than inline in the plist below because it now changes on every push,
+# and hunting for it inside a single-line XML blob is how a bump gets skipped.
+VERSION := 0.0.24
+# Monotonic build number. Kept equal to the patch count so far, so it never goes backwards
+# when the minor or major resets the patch to 0.
+BUILD   := 24
+
 # Minimal bundle metadata. Iris is built from SwiftPM rather than an .xcodeproj, so the
 # bundle is assembled here instead — same command-line workflow, no fragile project file.
 define INFO_PLIST
-<?xml version="1.0" encoding="UTF-8"?>\n<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">\n<plist version="1.0"><dict>\n<key>CFBundleName</key><string>Iris</string>\n<key>CFBundleDisplayName</key><string>Iris</string>\n<key>CFBundleExecutable</key><string>Iris</string>\n<key>CFBundleIdentifier</key><string>com.codycherrington.iris</string>\n<key>CFBundlePackageType</key><string>APPL</string>\n<key>CFBundleIconFile</key><string>AppIcon</string>\n<key>NSMicrophoneUsageDescription</key><string>Iris uses the microphone only if you enable voice input.</string>\n<key>CFBundleShortVersionString</key><string>0.0.1</string>\n<key>CFBundleVersion</key><string>1</string>\n<key>LSMinimumSystemVersion</key><string>26.0</string>\n<key>NSHighResolutionCapable</key><true/>\n<key>NSSupportsAutomaticTermination</key><true/>\n</dict></plist>
+<?xml version="1.0" encoding="UTF-8"?>\n<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">\n<plist version="1.0"><dict>\n<key>CFBundleName</key><string>Iris</string>\n<key>CFBundleDisplayName</key><string>Iris</string>\n<key>CFBundleExecutable</key><string>Iris</string>\n<key>CFBundleIdentifier</key><string>com.codycherrington.iris</string>\n<key>CFBundlePackageType</key><string>APPL</string>\n<key>CFBundleIconFile</key><string>AppIcon</string>\n<key>NSMicrophoneUsageDescription</key><string>Iris uses the microphone only if you enable voice input.</string>\n<key>CFBundleShortVersionString</key><string>$(VERSION)</string>\n<key>CFBundleVersion</key><string>$(BUILD)</string>\n<key>LSMinimumSystemVersion</key><string>26.0</string>\n<key>NSHighResolutionCapable</key><true/>\n<key>NSSupportsAutomaticTermination</key><true/>\n</dict></plist>
 endef
 export INFO_PLIST
 
