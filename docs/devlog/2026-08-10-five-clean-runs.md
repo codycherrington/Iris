@@ -147,19 +147,47 @@ There is now one, in a new title strip, pinned to the window's trailing edge —
 as the rail's trailing edge, so it reads as belonging to the panel while the panel is out and
 doesn't move when it isn't.
 
-**Amended after seeing it.** "One button that doesn't move" was the wrong target. Cody wanted
-it back beside the `+` when the rail is out — which is where it had always been — and alone at
-the trailing edge when it isn't. That's still one control, it just has two homes, and a shared
-`matchedGeometryEffect` id carries it between them so the rail appears to slide in beneath a
-button rather than one button vanishing while another fades in. The parked position uses the
-panel header's own trailing inset (`Tok.Space.base`) so the two ends of the animation line up
-horizontally instead of drifting a few points sideways.
+### Three versions of "the button doesn't move"
 
-Worth noting what *wasn't* built: making the button not move at all would mean hoisting the
-panel's header row into the title strip, which splits the rail into two independently animated
-pieces. This repo already has a note about that failure mode — a label and its dot driven by
-separate modifiers drift out of phase — so one piece that moves beat two pieces that have to
-agree.
+The first version put it in the title strip and left it there. Opening the rail dropped it
+37 pt, because the panel header is a row *below* the strip. Cody, with screenshots: *"see how
+the button drops lower after I open the side bar?"*
+
+The second version moved it deliberately — one view with two homes, carried between them by a
+shared `matchedGeometryEffect` id, so it flew from the strip down beside the `+`. Smoother, and
+still the wrong answer to the question. Cody again: *"almost like a menu bar button… the button
+remains stationary, and the side bar opens right over it."*
+
+The third version is the one that's right, and it's smaller than either. **The button is pinned
+to the window's top-right corner as an overlay and belongs to no layout container at all.** Not
+the transcript column, not the panel header. Nothing lays it out, so nothing can push it, and
+there is no animation to get right because there is no movement to animate.
+
+Everything else follows from that:
+
+- The panel now reaches the very top of the window, so its header row occupies the same band
+  the button already occupies. The title strip moved from the full-width VStack into the
+  transcript column alone.
+- The header **reserves** the button's footprint rather than laying it out —
+  `Tok.Space.base + ToolsToggleButton.side + Tok.Space.tight` of trailing padding — so the `+`
+  lands a normal row-gap to its left. Derived from the button's own size, not measured off a
+  screenshot.
+- The header is `.frame(height:)` at the band height, not `.padding(.vertical:)`. Padding makes
+  a row's height depend on its tallest child, so the two centrelines would have agreed by
+  coincidence and drifted the first time anything in either row changed size. One constant,
+  `titleStripHeight`, is the drag band, the button's row, and the header's height — because the
+  claim "it doesn't move" *is* the claim that those three are the same band.
+
+The version I'd argued against — hoisting the header into the strip — turned out not to be the
+alternative. That would have split the rail into two independently animated pieces. Taking the
+button *out* of the layout instead leaves the rail as one piece and removes the animation
+entirely.
+
+**One trap on the way.** The transcript column's strip was first written as
+`Color.clear.frame(height:).background(WindowDragStrip())`. `Color` is hit-testable in SwiftUI,
+so it would have claimed the mouse-down before the `NSView` underneath ever saw it — silently
+disabling the one view whose entire purpose is to receive that event. The representable sizes
+itself directly instead.
 
 The drag problem was `window.isMovableByWindowBackground = true`, set in Phase 3 to make a
 titlebar-less window movable. It grants the *whole* window, and the decision is made before a

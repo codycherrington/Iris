@@ -7,9 +7,10 @@ import SwiftUI
 struct SidebarPanel: View {
     @Bindable var registry: SidebarRegistry
     let workingDirectory: URL
-    /// Shared with the title strip so the Tools button animates between the two positions
-    /// rather than disappearing from one and appearing in the other.
-    let namespace: Namespace.ID
+    /// The window's top band. The header is exactly this tall so the `+` lands on the same
+    /// centreline as the Tools button, which is pinned to the window corner outside this
+    /// view's layout entirely.
+    let headerHeight: CGFloat
     let onToggle: () -> Void
 
     @State private var showingPicker = false
@@ -55,21 +56,26 @@ struct SidebarPanel: View {
             Button { showingPicker = true } label: {
                 Image(systemName: "plus")
                     .font(.system(size: 10, weight: .semibold))
-                    .frame(width: 22, height: 22)
+                    .frame(width: ToolsToggleButton.side, height: ToolsToggleButton.side)
             }
             .buttonStyle(.glassCircle)
             .glassEffect(Tok.Surface.interactive, in: .circle)
             .help("Add a tool")
             .disabled(registry.availableTools.isEmpty)
-
-            // Not a second button — the *same* one that sits in the title strip when the rail
-            // is closed, moved here by `matchedGeometryEffect`. Only one of the two branches
-            // exists at a time, which is what the effect requires, and it means the control
-            // rides in on the panel and rides back out with it.
-            ToolsToggleButton(isOn: true, namespace: namespace, action: onToggle)
         }
-        .padding(.horizontal, Tok.Space.base)
-        .padding(.vertical, Tok.Space.snug)
+        .padding(.leading, Tok.Space.base)
+        // The Tools button is pinned to the window corner and is in no container's layout, so
+        // this row has to leave a hole the right shape rather than lay it out. Derived from
+        // the button's own size and the row's spacing — nothing here is a measured-off-a-
+        // screenshot number, and changing either input keeps the gap correct.
+        .padding(.trailing, Tok.Space.base + ToolsToggleButton.side + Tok.Space.tight)
+        // Not padding: an explicit band, matching the one the button is centred in. Padding
+        // would make the row's height depend on its tallest child, so the two centrelines
+        // would agree only by coincidence.
+        .frame(height: headerHeight)
+        // The header sits in the window's drag band, so it drags like one — the empty space
+        // between the title and the buttons behaves the same as the strip beside it.
+        .background(WindowDragStrip())
     }
 
     private var emptyState: some View {
@@ -93,18 +99,19 @@ struct SidebarPanel: View {
 
 /// The one control that shows and hides the rail.
 ///
-/// It has two homes and is one view: beside the `+` in the panel header while the rail is
-/// out, and alone at the window's trailing edge while it isn't. A shared
-/// `matchedGeometryEffect` id carries it between them, so opening the panel looks like the
-/// rail sliding in *underneath* a button that stays put, rather than one button vanishing and
-/// another fading in somewhere else.
+/// **It is pinned to the window's top-right corner and belongs to no layout container** —
+/// not the transcript column, not the panel header. That's the whole design. Two earlier
+/// versions had it inside a container and tried to keep it still: one put it in the title
+/// strip and let it drop 37pt into the panel header when the rail opened, the other moved it
+/// there deliberately with `matchedGeometryEffect`. Both animated a position that shouldn't
+/// change. A control nothing lays out cannot be pushed by anything, so the panel reserves its
+/// footprint and slides in underneath instead.
 struct ToolsToggleButton: View {
     let isOn: Bool
-    let namespace: Namespace.ID
     let action: () -> Void
 
-    /// Matches the `+` beside it. The title-strip instance is the same size on purpose —
-    /// a control that resizes as it moves reads as two controls.
+    /// Also the `+` beside it, and the width the panel header reserves. One number, three
+    /// users, all of which have to agree for the row to read as one row.
     static let side: CGFloat = 22
 
     var body: some View {
@@ -117,7 +124,6 @@ struct ToolsToggleButton: View {
         }
         .buttonStyle(.glassCircle)
         .glassEffect(Tok.Surface.interactive, in: .circle)
-        .matchedGeometryEffect(id: GlassID.toolsToggle, in: namespace)
         .help(isOn ? "Hide tools (⌘⌥S)" : "Show tools (⌘⌥S)")
     }
 }

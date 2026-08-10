@@ -12,10 +12,6 @@ struct GlassContentView: View {
     @State private var showingPersona = false
     @State private var showingSidebar = SidebarRegistry.shared.layout.isVisible
     @Namespace private var glass
-    /// Separate from `glass`, which is the Liquid Glass morphing namespace. This one carries
-    /// `matchedGeometryEffect` for chrome that changes position, and mixing the two would
-    /// mean one namespace with two unrelated meanings.
-    @Namespace private var chrome
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     /// `Tok.TypeScale.body` as an `NSFont`, so the composer's line height comes from the
@@ -28,19 +24,28 @@ struct GlassContentView: View {
             AuroraBackdrop()
 
             VStack(spacing: 0) {
-                titleStrip
-
                 // The rail sits beside the *transcript only*, not beside the whole column.
                 // Wrapping the composer and status bar too would shove them sideways every
                 // time the panel opens, so the thing you're typing into would jump — and
                 // the chrome at the bottom has no reason to yield space to a tool panel.
                 HStack(spacing: 0) {
-                    transcript
+                    // The title strip belongs to this column, not to the window: the panel
+                    // has to reach the very top so its header row lands in the same band as
+                    // the Tools button, which is pinned to the window corner and never moves.
+                    VStack(spacing: 0) {
+                        // The representable itself, not `Color.clear` with it as a
+                        // background: `Color` is hit-testable in SwiftUI and would claim the
+                        // mouse-down before the NSView underneath ever saw it, which is the
+                        // one thing this view exists to receive.
+                        WindowDragStrip()
+                            .frame(height: Self.titleStripHeight)
+                        transcript
+                    }
 
                     if showingSidebar {
                         SidebarPanel(registry: registry,
                                      workingDirectory: model.workingDirectory,
-                                     namespace: chrome,
+                                     headerHeight: Self.titleStripHeight,
                                      onToggle: toggleSidebar)
                             // Slides in from the edge it lives on; opacity alone made it
                             // appear to materialise on top of the transcript.
@@ -69,6 +74,18 @@ struct GlassContentView: View {
                                    Task { await model.applySettings(next) }
                                })
             }
+        }
+        // Fixed to the window's corner, above everything, in the layout of nothing. That is
+        // what keeps it still: it isn't a row in the transcript column *or* a row in the
+        // panel header, so neither opening the rail nor anything else can push it. The panel
+        // reserves its footprint and slides in underneath.
+        .overlay(alignment: .topTrailing) {
+            ToolsToggleButton(isOn: showingSidebar, action: toggleSidebar)
+                // Centres it in the same band the panel header centres its own controls in,
+                // so the two line up by construction rather than by a matching pair of
+                // hand-tuned paddings.
+                .frame(width: ToolsToggleButton.side, height: Self.titleStripHeight)
+                .padding(.trailing, Tok.Space.base)
         }
         // Wider floor when the rail is out: 640 minus a 320pt panel leaves the transcript
         // too narrow for a code block to be readable.
@@ -129,34 +146,14 @@ struct GlassContentView: View {
         registry.setVisible(showingSidebar)
     }
 
-    // MARK: Title strip
-
-    /// The window's only draggable region, and where the Tools button parks when the rail is
-    /// closed.
+    /// The band across the top of the window: the only place a drag moves the window, the
+    /// row the Tools button sits in, and the height of the tool panel's header.
     ///
-    /// The strip has to exist anyway — a hidden titlebar still needs somewhere to grab the
-    /// window, and after `isMovableByWindowBackground` was turned off there was nowhere. The
-    /// button is only *here* while the rail is hidden; when it's out, the same button (same
-    /// `matchedGeometryEffect` id) sits beside the `+` in the panel header, where it lived
-    /// before, and the panel appears to slide in beneath it.
-    private var titleStrip: some View {
-        HStack(spacing: 0) {
-            Spacer(minLength: 0)
-            if !showingSidebar {
-                ToolsToggleButton(isOn: false, namespace: chrome, action: toggleSidebar)
-            }
-        }
-        // The panel header's own trailing inset, so the parked position lines up with the
-        // one it animates to instead of drifting a few points sideways.
-        .padding(.trailing, Tok.Space.base)
-        .frame(height: Self.titleStripHeight)
-        // Behind the button, not over it: the button keeps its own clicks and the empty
-        // space either side of it drags the window.
-        .background(WindowDragStrip())
-    }
-
-    /// Tall enough to clear the traffic lights, which the hidden titlebar still draws.
-    private static let titleStripHeight: CGFloat = 32
+    /// One number for all three because they have to agree — the button holding still across
+    /// the rail opening is exactly the claim that the panel's header row occupies the same
+    /// band the button already occupies. Tall enough to clear the traffic lights, which the
+    /// hidden titlebar still draws.
+    static let titleStripHeight: CGFloat = 32
 
     // MARK: Transcript
 
