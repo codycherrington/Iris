@@ -169,6 +169,37 @@ and only the empty space around it drags.
 
 ---
 
+## Deleting the field is cheaper than defending it
+
+Later the same day, after using it: *"I don't want the tips. I just want it to return a better
+prompt with a copy button. Remove the tips entirely, I don't want wasted tokens on it."*
+
+The prompt improver had three output fields — a 1–10 score, a list of issues, and the rewrite —
+and by then the score had accumulated four separate defences: `minimum`/`maximum` in the schema,
+a `clampedScore` for display, a `scoreOutOfRange` badge for when the bounds didn't hold, and a
+colour ramp. All of that existed because of the fixture containing `"score": 15`, which the panel
+had rendered as a confident green **15/10**.
+
+`PromptRewrite` has one property. The schema has one key. All four defences are gone, not
+improved.
+
+Measured on the two test prompts, old schema and prompt versus new, same model:
+
+| prompt | output tokens | duration |
+|---|---|---|
+| "make the login page better…" | 795 → **544** | 9.5 s → **6.6 s** |
+| "refactor the api…" | 1,084 → **663** | 12.4 s → **7.6 s** |
+
+About a third off both, and the panel is more useful, because the thing you actually wanted was
+never more than one scroll down. The system prompt still *names* the defect classes to fix —
+that's what makes the rewrite good — it just forbids reporting them.
+
+One cost, recorded in [`docs/story/assets.md`](../story/assets.md): the "green 15/10" screenshot
+was on the asset list flagged **expiring**, and it expired unshot. The flag was right about the
+mechanism and wrong about the deadline — it predicted the shot would vanish when the schema was
+tightened, and it vanished when the field was deleted for an unrelated reason. The fixture is
+committed, so the evidence survives; only the framing was lost.
+
 ## Not verified
 
 The Tools button sits inside the band where a hidden titlebar still draws its traffic lights.

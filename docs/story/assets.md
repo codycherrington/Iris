@@ -72,14 +72,21 @@ moment is gone once it happens uncaptured.
   long enough to *feel* on camera, which is the point: the table states it, the footage sells
   it. Fully reproducible, nothing expiring, but shoot the wall clock rather than trusting
   `duration_ms` — it under-reports by the ~2 s of process spawn.
-- [ ] **A green `15/10` in the prompt improver** (2026-08-09) — ⚠️ **expiring, and cheaply.** The
-  score field has no `minimum`/`maximum`, so the model can return 15, and `scoreTint` sends
-  anything ≥ 7 to green. It renders as a confident green **15/10**. The fixture proves the payload
-  is real; the *screenshot of the UI stating it* is the shareable artifact, and it disappears the
-  moment the schema is tightened (which it should be). Reproduce by running the prompt improver on
-  a deliberately terrible prompt until a >10 score comes back, and screenshot immediately. Pair
-  with the schema line on screen for the "a schema is a constraint, a description is a request"
-  beat.
+- [x] ~~**A green `15/10` in the prompt improver**~~ (2026-08-09) — ❌ **expired, never captured,
+  2026-08-10.** The warning was right about the mechanism and wrong about the deadline: it
+  predicted the shot would disappear when the schema was *tightened*, and it disappeared when the
+  **field was deleted**. The prompt improver now returns a rewrite and nothing else — the score
+  and issue list were output tokens spent on a critique nobody acts on, so `PromptRewrite` has one
+  property and the schema has one key. No score field, no `scoreTint`, no way to render 15/10
+  again in any build.
+  **The story survives without the screenshot.** `oneshot_structured.ndjson` is committed and
+  contains `"score": 15` against a bare `{"type":"integer"}`, which is the actual evidence; the
+  UI rendering was only ever the shareable framing of it. Use the fixture on screen instead — see
+  the "Fifteen out of ten" entry above, which was captured and is permanent.
+  **The lesson for this file:** "expiring" was tracked against the fix that was anticipated. What
+  actually removed it was a product decision two days later that had nothing to do with the bug.
+  An asset that depends on a feature existing expires when the *feature* goes, not when the bug
+  does — worth flagging that way on anything still open.
 - [ ] **The sidebar's nine seconds, unedited** (2026-08-09) — click **Check** on a real query and
   hold the entire wait: the `haiku · separate process` pending row with Cancel beside it, then the
   result plus its usage footnote. Fully reproducible, nothing expiring, but it must be shot as a

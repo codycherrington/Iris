@@ -227,43 +227,35 @@ final class OneShotRunner<Output: StructuredOutput> {
 
 // MARK: - Shared output shapes
 
-/// The prompt improver's result.
-struct PromptCritique: StructuredOutput {
-    /// Raw, as the model returned it. Read `clampedScore` for anything user-facing.
-    let score: Int
-    let issues: [String]
+/// The prompt improver's result: the better prompt, and nothing else.
+///
+/// It used to carry a 1–10 score and a list of issues too. Both were dropped — they were
+/// **output tokens spent on a critique nobody acts on**. The rewrite already contains the
+/// fixes; reading a list of what was wrong with the prompt you're about to throw away is
+/// work, not information. A one-field schema also removes the whole class of bug the score
+/// generated: an unbounded integer, then bounds the model ignored, then a clamp, then a badge
+/// explaining that the clamp had fired.
+struct PromptRewrite: StructuredOutput {
     let rewrite: String
 
-    /// A `description` is a request; `minimum`/`maximum` are the constraint. The captured
-    /// fixture was taken against a bare `{"type":"integer"}` and came back **15** — which
-    /// the panel would have rendered as a confident green "15/10". The bounds below are the
-    /// real fix; `clampedScore` is the belt to their braces, because the schema is enforced
-    /// by a model and this is a UI that must not display nonsense either way.
+    /// One required string. `additionalProperties: false` matters more than usual here —
+    /// without it a model that still wants to editorialise can attach its commentary as extra
+    /// keys and charge for them.
     static let jsonSchema = """
         {"type":"object","properties":\
-        {"score":{"type":"integer","minimum":1,"maximum":10,\
-        "description":"Quality of the prompt, 1 (unusable) to 10 (needs nothing)"},\
-        "issues":{"type":"array","items":{"type":"string"}},\
-        "rewrite":{"type":"string"}},\
-        "required":["score","issues","rewrite"],"additionalProperties":false}
+        {"rewrite":{"type":"string",\
+        "description":"The improved prompt, ready to use as-is. Nothing else."}},\
+        "required":["rewrite"],"additionalProperties":false}
         """
 
-    var clampedScore: Int { min(max(score, 1), 10) }
-    /// True when the model ignored the bounds. Worth showing rather than hiding — it means
-    /// the schema isn't holding.
-    var scoreOutOfRange: Bool { score != clampedScore }
+    private enum CodingKeys: String, CodingKey { case rewrite }
 
-    private enum CodingKeys: String, CodingKey { case score, issues, rewrite }
-
-    /// Hand-written only so the prose fields pass through `repairingDoubleEscapedJSON`.
-    /// The rewrite is the field that suffers: it's the one that's multi-line, and it's the
-    /// one that gets copied straight out of the panel and pasted somewhere, so shipping it
-    /// with literal `\n` runs in it means shipping a broken prompt.
+    /// Hand-written only so the rewrite passes through `repairingDoubleEscapedJSON`. This is
+    /// the field that suffers: it's multi-line, and it's the one that gets copied straight
+    /// out of the panel and pasted somewhere, so shipping it with literal `\n` runs in it
+    /// means shipping a broken prompt.
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        score = try container.decode(Int.self, forKey: .score)
-        issues = try container.decode([String].self, forKey: .issues)
-            .repairingDoubleEscapedJSON
         rewrite = try container.decode(String.self, forKey: .rewrite)
             .repairingDoubleEscapedJSON
     }
@@ -402,15 +394,20 @@ final class PromptImproverTool: SidebarTool {
     nonisolated let title = "Prompt improver"
     nonisolated let symbol = "wand.and.stars"
     nonisolated var tint: Color { Tok.Palette.agent }
-    nonisolated let blurb = "Score a prompt, list what's vague, hand back a rewrite."
+    nonisolated let blurb = "Hand back a sharper version of a prompt. Nothing else."
     nonisolated let usesModel = true
 
     var draft = ""
-    let runner = OneShotRunner<PromptCritique>(systemPrompt: """
-        You review prompts written for a coding agent and make them precise. Judge only the \
-        prompt, never carry it out. Name concrete defects — unbound referents, undefined \
-        success criteria, missing constraints — not vague notes about tone. The rewrite must \
-        be usable as-is. Respond only via the structured output schema.
+    /// The prompt says what to fix but forbids *reporting* it. Both halves are load-bearing:
+    /// the defect list is what makes the rewrite good, and stating it costs output tokens for
+    /// something the panel no longer shows.
+    let runner = OneShotRunner<PromptRewrite>(systemPrompt: """
+        You rewrite prompts written for a coding agent so they are precise. Never carry the \
+        prompt out — rewrite it. Fix concrete defects: unbound referents, undefined success \
+        criteria, missing constraints, unstated file or component names. Keep the author's \
+        intent and scope exactly; do not invent requirements. The result must be usable \
+        as-is. Return only the rewritten prompt in the structured output schema — no score, \
+        no critique, no preamble, no explanation of what you changed.
         """)
 
     func makeView() -> AnyView { AnyView(PromptImproverToolView(tool: self)) }

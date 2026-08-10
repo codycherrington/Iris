@@ -326,13 +326,23 @@ in a worse place, with a mapping to keep honest by hand. So `SidebarTool` is cla
 rather than deallocating anything. *Reach for a value type until state has a lifecycle; then
 stop.*
 
-**Fifteen out of ten.** The prompt improver returns a 1–10 score. The captured fixture — real
-output, committed — contains `"score":15`. The schema said `{"type":"integer"}` with no `minimum`
-or `maximum`, so the model gave a perfectly valid integer, and the UI's colour ramp sends anything
-≥ 7 to green. Nothing crashed and nothing was caught; the panel just stated something absurd with
-total composure. A nice, concrete version of a general point: **a structured-output schema is the
-only constraint the model is actually held to — prose in a description is a request.** Still
-unfixed as of `63d6b70`, and written down with the evidence rather than quietly patched.
+**Fifteen out of ten.** The prompt improver used to return a 1–10 score. The captured fixture —
+real output, committed — contains `"score":15`. The schema said `{"type":"integer"}` with no
+`minimum` or `maximum`, so the model gave a perfectly valid integer, and the UI's colour ramp sends
+anything ≥ 7 to green. Nothing crashed and nothing was caught; the panel just stated something
+absurd with total composure. A nice, concrete version of a general point: **a structured-output
+schema is the only constraint the model is actually held to — prose in a description is a
+request.** Written down with the evidence rather than quietly patched, then bounded (`minimum`,
+`maximum`, a clamp, and a badge for when the clamp fired).
+
+The ending is better than the fix. On 2026-08-10 the score was **deleted**, along with the issue
+list, because Cody pointed out he never acted on either — they were output tokens spent on a
+critique of a prompt he was about to throw away. Measured on the same two prompts, old schema
+versus new: **795 → 544 and 1,084 → 663 output tokens, 9.5 s → 6.6 s and 12.4 s → 7.6 s.** Roughly
+a third off both, for a panel that got *more* useful. Four defensive mechanisms — bounds, a clamp,
+an out-of-range badge, and a colour ramp — existed to make a number safe that shouldn't have been
+on screen at all. **The cheapest way to make a field correct is to establish that nobody needs
+it.**
 
 ## The through-line: measure it, don't look at it
 

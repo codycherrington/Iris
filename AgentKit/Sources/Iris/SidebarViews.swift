@@ -364,57 +364,27 @@ struct PromptImproverToolView: View {
             runner: tool.runner,
             placeholder: "Paste a prompt…",
             tint: tool.tint,
-            runLabel: "Review"
-        ) { critique, _ in
+            runLabel: "Rewrite"
+        ) { result, _ in
+            // One output, one action. The score and issue list that used to sit above this
+            // were removed with the fields behind them — see `PromptRewrite`.
             VStack(alignment: .leading, spacing: Tok.Space.tight) {
-                HStack(spacing: Tok.Space.tight) {
-                    Text("\(critique.clampedScore)/10")
-                        .font(Tok.TypeScale.title)
-                        .foregroundStyle(scoreTint(critique.clampedScore))
-                    Text("\(critique.issues.count) issue\(critique.issues.count == 1 ? "" : "s")")
-                        .font(Tok.TypeScale.label)
-                        .foregroundStyle(.secondary)
-                    if critique.scoreOutOfRange {
-                        Text("model said \(critique.score)")
-                            .font(Tok.TypeScale.label)
-                            .foregroundStyle(Tok.Palette.warn)
-                            .help("Outside the schema's 1–10 bounds — the constraint isn't holding.")
-                    }
+                HStack {
+                    Text("Rewrite").font(Tok.TypeScale.label).foregroundStyle(.secondary)
+                    Spacer()
+                    CopyButton(text: result.rewrite)
                 }
-
-                ForEach(critique.issues, id: \.self) { issue in
-                    HStack(alignment: .top, spacing: 5) {
-                        Text("•").foregroundStyle(.tertiary)
-                        Text(issue).fixedSize(horizontal: false, vertical: true)
-                    }
-                    .font(Tok.TypeScale.label)
+                ScrollView {
+                    Text(result.rewrite)
+                        .font(Tok.TypeScale.mono)
+                        .textSelection(.enabled)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .frame(maxWidth: .infinity, alignment: .leading)
                 }
-
-                if !critique.rewrite.isEmpty {
-                    Divider().opacity(0.3)
-                    HStack {
-                        Text("Rewrite").font(Tok.TypeScale.label).foregroundStyle(.secondary)
-                        Spacer()
-                        CopyButton(text: critique.rewrite)
-                    }
-                    ScrollView {
-                        Text(critique.rewrite)
-                            .font(Tok.TypeScale.mono)
-                            .textSelection(.enabled)
-                            .fixedSize(horizontal: false, vertical: true)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                    }
-                    .frame(maxHeight: 180)
-                }
+                // Taller than the old 180: this is the only result now, so it gets the space
+                // the critique used to take.
+                .frame(maxHeight: 280)
             }
-        }
-    }
-
-    private func scoreTint(_ score: Int) -> Color {
-        switch score {
-        case ..<4: return Tok.Palette.danger
-        case 4..<7: return Tok.Palette.warn
-        default: return Tok.Palette.approve
         }
     }
 }
