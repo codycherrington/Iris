@@ -449,22 +449,32 @@ struct GlassStatusBar: View {
                 .glassEffect(Tok.Surface.interactive, in: .capsule)
                 .help("Edit persona — restarts the session")
 
-                // Green means running on the subscription. The one indicator that must never
-                // be subtle — and must never imply API billing before it has any data.
+                // The chip says what it *is* — the model and effort — and carries auth as a
+                // coloured dot rather than a word. Model and effort come from the
+                // configuration, so they're known at launch; auth isn't, because `system/init`
+                // arrives per turn, so the dot stays grey until the first message proves it.
                 //
-                // Model and effort come from the *configuration*, so they're known at launch
-                // and shown immediately. Auth isn't: `system/init` arrives per turn, so the
-                // dot stays grey until the first message proves it. Showing a real model name
-                // beside a hedged auth state is the honest version of what used to be an
-                // uninformative "starting… —".
+                // The one thing that must never be subtle is auth going *wrong*. Green-vs-grey
+                // is a fine way to say "confirmed" versus "not yet known", and a hopeless way
+                // to say "you are being billed per token" — so `.degraded` also spells the
+                // source out in red, ahead of everything else in the chip. Losing the word
+                // "subscription" from the good case costs nothing; losing the bad case would
+                // break the project's one hard rule.
                 Button { showingModelPicker = true } label: {
                     HStack(spacing: 4) {
                         Circle()
                             .fill(connectionTint)
                             .frame(width: 5, height: 5)
                             .opacity(stats.connection == .starting ? 0.45 : 1)
-                        Text(connectionLabel)
+                        if stats.connection == .degraded {
+                            Image(systemName: "exclamationmark.triangle.fill")
+                                .font(.system(size: 8))
+                                .foregroundStyle(Tok.Palette.danger)
+                            Text(stats.authSource).foregroundStyle(Tok.Palette.danger)
+                        }
+                        Text("model:")
                         Text(stats.configuredModel).foregroundStyle(.secondary)
+                        Text("-").foregroundStyle(.tertiary)
                         Text(stats.configuredEffort).foregroundStyle(.tertiary)
                         if let drift = modelDrift {
                             Image(systemName: "exclamationmark.triangle.fill")
@@ -494,7 +504,9 @@ struct GlassStatusBar: View {
                 // slow timer and on demand rather than continuously.
                 Button(action: onRefreshQuota) {
                     HStack(spacing: 4) {
-                        Text("quota:").foregroundStyle(.tertiary)
+                        // Primary, like every other chip's label — the leading word is the
+                        // chip's name, not a caption for the number after it.
+                        Text("quota:")
                         if let five = stats.quota?.fiveHour {
                             Text("\(Int(five.usedPercent.rounded()))%")
                                 .foregroundStyle(quotaTint(five.usedPercent))
@@ -529,14 +541,14 @@ struct GlassStatusBar: View {
                 // number in a row of chips that are all one number.
                 if let context = contextPercent {
                     readout(help: contextHelp) {
-                        Text("context").foregroundStyle(.tertiary)
+                        Text("context:")
                         Text("\(context)%").foregroundStyle(contextTint(context))
                     }
                 }
 
                 if stats.turns > 0 {
                     readout(help: sessionHelp) {
-                        Text("session").foregroundStyle(.tertiary)
+                        Text("session:")
                         Text(compactTokens(stats.sessionTokens))
                             .foregroundStyle(.secondary)
                     }
@@ -571,16 +583,6 @@ struct GlassStatusBar: View {
         }
     }
 
-    private var connectionLabel: String {
-        switch stats.connection {
-        // Honest: auth isn't known until the first turn, so don't claim anything. The model
-        // beside it is a launch argument, so it can be stated with confidence.
-        case .starting: return "checking…"
-        case .ready: return "subscription"
-        case .degraded: return stats.authSource
-        }
-    }
-
     /// Set when the model that actually ran isn't the one that was asked for — a fallback
     /// kicked in, or an alias resolved somewhere unexpected. Silent disagreement between
     /// "what I selected" and "what I'm being charged for" is exactly the kind of thing this
@@ -592,6 +594,8 @@ struct GlassStatusBar: View {
         return "Configured \(stats.configuredModel), but the session reported \(stats.model)."
     }
 
+    /// The dot's meaning, in words. It carries the auth state on its own in the chip, so this
+    /// is where the state gets said out loud.
     private var connectionHelp: String {
         let tail = "  ·  Click to change model or effort."
         switch stats.connection {
@@ -599,7 +603,8 @@ struct GlassStatusBar: View {
             return "Checking local credentials…" + tail
         case .ready:
             let plan = stats.subscriptionPlan.map { " (\($0))" } ?? ""
-            return "apiKeySource = none — running on your Claude subscription\(plan)." + tail
+            return "Green dot: apiKeySource = none — running on your Claude "
+                + "subscription\(plan)." + tail
         case .degraded:
             return "apiKeySource = \(stats.authSource) — NOT the subscription path." + tail
         }
