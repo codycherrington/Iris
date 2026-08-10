@@ -7,7 +7,6 @@ import SwiftUI
 struct SidebarPanel: View {
     @Bindable var registry: SidebarRegistry
     let workingDirectory: URL
-    let onClose: () -> Void
 
     @State private var showingPicker = false
 
@@ -58,15 +57,11 @@ struct SidebarPanel: View {
             .glassEffect(Tok.Surface.interactive, in: .circle)
             .help("Add a tool")
             .disabled(registry.availableTools.isEmpty)
-
-            Button(action: onClose) {
-                Image(systemName: "sidebar.right")
-                    .font(.system(size: 10, weight: .semibold))
-                    .frame(width: 22, height: 22)
-            }
-            .buttonStyle(.glassCircle)
-            .glassEffect(Tok.Surface.interactive, in: .circle)
-            .help("Hide tools (⌘⌥S)")
+            // No close button here. It used to sit at the panel's top-right and vanish with
+            // the panel, so the control that hides the rail was only reachable while the rail
+            // was showing — the button that brought it back lived somewhere else entirely,
+            // in the status bar. There is now one Tools button, in the title strip directly
+            // above this header, and it doesn't move.
         }
         .padding(.horizontal, Tok.Space.base)
         .padding(.vertical, Tok.Space.snug)

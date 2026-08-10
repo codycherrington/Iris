@@ -121,19 +121,37 @@ struct ComposerTextView: NSViewRepresentable {
 }
 
 /// `keyDown` rather than `doCommandBy(_:)`: the delegate callback doesn't carry modifier
-/// flags, so there's no way to tell ⌘↵ from ↵ inside it — and plain ↵ has to keep inserting
-/// a newline.
+/// flags, and every distinction the composer makes is a modifier one — ↵ sends, ⇧↵ inserts a
+/// newline, ⌘↵ still sends.
 final class ComposerNSTextView: NSTextView {
     var onSubmit: (() -> Void)?
     var onEscape: (() -> Void)?
 
     private enum Key {
         static let ret: UInt16 = 36
+        /// The numeric keypad's Enter. Same intent as Return; users who send from the keypad
+        /// shouldn't get a newline instead.
+        static let enter: UInt16 = 76
         static let escape: UInt16 = 53
     }
 
     override func keyDown(with event: NSEvent) {
-        if event.keyCode == Key.ret, event.modifierFlags.contains(.command) {
+        if event.keyCode == Key.ret || event.keyCode == Key.enter {
+            // An input method has the key first. During Japanese/Chinese/Korean composition
+            // Return commits the candidate — sending there would fire the message with
+            // half-composed text and swallow the commit. `hasMarkedText` is the documented
+            // way to ask whether a composition is in flight.
+            if hasMarkedText() {
+                super.keyDown(with: event)
+                return
+            }
+            // ⇧↵ is the newline. Option↵ too: it's the other conventional "I meant a literal
+            // return" modifier and costs nothing to honour.
+            let flags = event.modifierFlags
+            if flags.contains(.shift) || flags.contains(.option) {
+                super.keyDown(with: event)
+                return
+            }
             onSubmit?()
             return
         }

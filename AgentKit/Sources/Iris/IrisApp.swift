@@ -39,7 +39,12 @@ struct WindowChrome: NSViewRepresentable {
         window.titlebarAppearsTransparent = true
         window.titleVisibility = .hidden
         window.styleMask.insert(.fullSizeContentView)
-        window.isMovableByWindowBackground = true
+        // Off, deliberately. With it on, AppKit treats a drag starting anywhere that isn't a
+        // control as a window move — which means dragging across a message to select it moves
+        // the window instead, and there is no way for the text view to win, because the
+        // decision is made before the drag is recognised as a selection. Dragging is confined
+        // to `WindowDragStrip` at the top of the content instead.
+        window.isMovableByWindowBackground = false
         // Off by default. Without it the window never dispatches mouseMoved, so the
         // backdrop's pointer-lean monitor would sit silent.
         window.acceptsMouseMovedEvents = true
@@ -47,6 +52,25 @@ struct WindowChrome: NSViewRepresentable {
         // on top of it and flatten the glass.
         window.backgroundColor = .clear
         window.isOpaque = false
+    }
+}
+
+/// The one region where a drag moves the window.
+///
+/// `isMovableByWindowBackground` is the usual way to do this and is the wrong tool here: it
+/// grants the whole window, so it collides with every drag gesture the content wants —
+/// selecting transcript text most obviously. AppKit asks the view under the pointer whether
+/// a drag starting there should move the window, so scoping it is a matter of answering that
+/// question in one small view and nowhere else.
+///
+/// Placed *behind* the strip's contents rather than over them, so a button sitting in the
+/// strip still gets its own clicks; only the empty space around it drags.
+struct WindowDragStrip: NSViewRepresentable {
+    func makeNSView(context: Context) -> NSView { DraggableView() }
+    func updateNSView(_ nsView: NSView, context: Context) {}
+
+    private final class DraggableView: NSView {
+        override var mouseDownCanMoveWindow: Bool { true }
     }
 }
 

@@ -252,6 +252,21 @@ struct PromptCritique: StructuredOutput {
     /// True when the model ignored the bounds. Worth showing rather than hiding — it means
     /// the schema isn't holding.
     var scoreOutOfRange: Bool { score != clampedScore }
+
+    private enum CodingKeys: String, CodingKey { case score, issues, rewrite }
+
+    /// Hand-written only so the prose fields pass through `repairingDoubleEscapedJSON`.
+    /// The rewrite is the field that suffers: it's the one that's multi-line, and it's the
+    /// one that gets copied straight out of the panel and pasted somewhere, so shipping it
+    /// with literal `\n` runs in it means shipping a broken prompt.
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        score = try container.decode(Int.self, forKey: .score)
+        issues = try container.decode([String].self, forKey: .issues)
+            .repairingDoubleEscapedJSON
+        rewrite = try container.decode(String.self, forKey: .rewrite)
+            .repairingDoubleEscapedJSON
+    }
 }
 
 /// Shared by the SQL reviewer and the bug checker. They differ in what they're told to look
@@ -273,10 +288,32 @@ struct FindingList: StructuredOutput {
         let fix: String
 
         private enum CodingKeys: String, CodingKey { case severity, location, issue, fix }
+
+        /// Same repair as `PromptCritique` — see `repairingDoubleEscapedJSON`. `severity` is
+        /// a one-word enum and `location` a file/line, so neither can be multi-line; only
+        /// the two prose fields need it.
+        init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            severity = try container.decode(String.self, forKey: .severity)
+            location = try container.decodeIfPresent(String.self, forKey: .location)
+            issue = try container.decode(String.self, forKey: .issue)
+                .repairingDoubleEscapedJSON
+            fix = try container.decode(String.self, forKey: .fix)
+                .repairingDoubleEscapedJSON
+        }
     }
 
     let summary: String
     let findings: [Finding]
+
+    private enum CodingKeys: String, CodingKey { case summary, findings }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        summary = try container.decode(String.self, forKey: .summary)
+            .repairingDoubleEscapedJSON
+        findings = try container.decode([Finding].self, forKey: .findings)
+    }
 
     static let jsonSchema = """
         {"type":"object","properties":\

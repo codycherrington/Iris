@@ -1,0 +1,92 @@
+# ADR-012 — The gauge under the composer measures context, not quota
+
+**Date:** 2026-08-10 · **Status:** accepted
+
+## Context
+
+Cody: *"Show usage percentage bar below the chat bar as well."*
+
+Iris's own prompt improver, run on that sentence, flagged it before anything was built:
+*"Vague success metric: 'usage percentage' undefined — what is being measured (tokens, API
+calls, etc.)?"* Fair. There were two candidates, and they are not interchangeable — one is
+"how close am I to being cut off today", the other is "how close is this conversation to a
+compact."
+
+**Quota was the intuitive answer, and Phase 0 had recommended it.** `docs/plan.md` records
+`rate_limit_event` as *"better than a cost meter — a real quota gauge with a reset
+countdown."* That is still true as far as it goes, and it does not go as far as a percentage.
+The event's full payload is:
+
+```json
+{ "status": "allowed", "resetsAt": 1786167000, "rateLimitType": "five_hour",
+  "overageStatus": "rejected", "overageDisabledReason": "org_level_disabled",
+  "isUsingOverage": false }
+```
+
+A state, a deadline, and two overage flags. **No numerator, no denominator.** There is no
+`claude usage` subcommand either — the CLI's command list is `agents`, `auth`, `auto-mode`,
+`doctor`, `gateway`, `import`, `install`, `mcp`, `plugin`, `project`, `setup-token`,
+`ultrareview`, `update`. Nothing reports consumption. So a quota percentage would have to be
+estimated from token counts against a limit Anthropic doesn't publish to the client, and
+rendered as a confident bar.
+
+**Context, by contrast, is measured exactly** and both halves come from the same `result`
+event:
+
+- **Numerator** — `usage.input_tokens + cache_read_input_tokens + cache_creation_input_tokens`.
+  This is the per-turn block, so it describes what the last prompt actually weighed. Cached
+  tokens are included deliberately: a cached token occupies the window identically to an
+  uncached one, it is only cheaper to send.
+- **Denominator** — `modelUsage[<the model system/init reported>].contextWindow`.
+
+## Decision
+
+**Show a context gauge. Leave quota as the status chip it already is — status plus reset
+countdown, exactly what the CLI reports and nothing more.**
+
+The denominator is looked up **by model id**, not by taking the max or the first entry:
+
+```swift
+r.modelUsage[stats.model]?.contextWindow ?? r.modelUsage.values.compactMap(\.contextWindow).max()
+```
+
+`modelUsage` routinely carries a second entry, because the CLI makes its own small Haiku
+calls alongside the session's model. In a captured transcript the two are `claude-opus-5`
+(1,000,000) and `claude-haiku-4-5` (200,000). Picking `.max()` happens to be right there and
+is right for the wrong reason; picking `.first` or sorting by output tokens is wrong on turn
+one, where the cumulative Haiku entry (14 output tokens) outweighs Opus's 5. The only correct
+key is the one `system/init` named.
+
+The bar is absent, not zero, before the first result. A bar sitting at 0% asserts a
+measurement that hasn't happened.
+
+## Alternatives considered
+
+**Estimate quota from cumulative tokens against a hardcoded plan limit.** Rejected. The limit
+isn't published, varies by plan, and is shared with every other Claude Code session the user
+is running — including Iris's own sidebar tools. An estimate would be wrong by an unknowable
+factor and would be *believed*, because it looks like a measurement. Iris exists to make the
+real numbers visible; inventing one in the accounting strip is the specific failure this
+project should never ship.
+
+**Wait for a CLI that reports quota.** Rejected as a reason to ship nothing: context is
+independently useful and this doesn't preclude adding quota later. If `rate_limit_info` grows
+a `used`/`limit` pair, the same strip can carry a second bar.
+
+**Put it in the status bar with the other metrics.** Rejected on Cody's placement — under the
+composer — which is also the better spot: it's the number that should change what you type
+next, so it belongs where you're typing, not in the telemetry row.
+
+## Consequences
+
+- **The plan's Phase 0 note is now half wrong** and has been annotated rather than deleted.
+  `rate_limit_event` is better than a cost meter *for what it is*; it is not a gauge.
+- **The Ledger card "Quota gauge + context gauge" is one half done, and the other half is
+  blocked on the CLI**, not on Iris. Worth recording so it doesn't read as unfinished work.
+- **Thresholds are behavioural, not decorative**: cyan under 70%, amber to 90%, red past it.
+  Those are the points where what you'd do differently changes — be deliberate about pasting
+  large files, then expect a compact.
+- **The fill has a 2pt floor.** At 0.2% of a 1M window the fill rounds below a pixel and the
+  bar reads as empty, which is a different claim than "barely used."
+- The gauge reports the *last turn*, not a running maximum. After a compact it drops, which
+  is correct and is the moment the number is most worth seeing.

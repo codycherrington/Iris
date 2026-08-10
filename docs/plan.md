@@ -163,6 +163,12 @@ cannot deadlock the UI. `--permission-mode acceptEdits` auto-approves cleanly fo
 - **`rate_limit_event`** → `{status, resetsAt, rateLimitType: "five_hour", overageStatus,
   isUsingOverage}`. For a subscription-based app this is *better than a cost meter* — a real
   quota gauge with a reset countdown. Arrives first, before `system/init`.
+  **Amended 2026-08-10:** "gauge" overstates it. The payload has a state, a deadline and two
+  overage flags — **no numerator and no denominator** — and there is no `claude usage`
+  subcommand to get them from either. It supports a status chip with a countdown, which is
+  what Iris shows, and cannot support a percentage without inventing one. The bar under the
+  composer measures **context** instead; see
+  [ADR-012](decisions/ADR-012-context-not-quota-under-the-composer.md).
 - **`system/thinking_tokens`** → `{estimated_tokens, estimated_tokens_delta}`, streamed live. Drives
   a genuine thinking-progress indicator instead of a spinner.
 - **`system/status`**, and `system/permission_denied` (above).
@@ -207,7 +213,7 @@ Plain SwiftUI. System colors. **No glass yet.**
 
 - Streaming transcript, `@Observable` model, `.textSelection(.enabled)`
 - Markdown + syntax-highlighted code blocks with copy buttons
-- Composer: multiline, ⌘↵ send, Esc interrupt
+- Composer: multiline, ↵ send (⇧↵ / ⌥↵ newline, ⌘↵ still sends), Esc interrupt
 - Tool calls as collapsed rows
 
 Exit bar: **use it for a real task and compare against the terminal.** Constraint #3 is re-tested

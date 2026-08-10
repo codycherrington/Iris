@@ -72,6 +72,9 @@ struct SessionStats: Sendable {
     var dispatchMS: Int?
     var sessionCostUSD: Double?
     var contextWindow: Int?
+    /// How much of the window the last turn actually carried: prompt tokens, cached or not.
+    /// Nil until the first result lands.
+    var contextTokens: Int?
     var quotaStatus: String?
     var quotaResetsAt: Date?
     var thinkingTokens: Int?
@@ -445,8 +448,22 @@ final class SessionModel {
             stats.dispatchMS = r.timeToRequestMS
             stats.sessionCostUSD = r.totalCostUSD
             stats.thinkingTokens = nil
-            if let window = r.modelUsage.values.compactMap(\.contextWindow).max() {
+            // The window belongs to the model that ran *this* turn, looked up by the id
+            // `system/init` reported. `modelUsage` routinely carries a second entry — the
+            // CLI makes its own small Haiku calls — and those have a 200k window against
+            // Opus's 1M, so picking by max or by first entry reports the wrong denominator
+            // depending on which side happens to win.
+            if let window = r.modelUsage[stats.model]?.contextWindow
+                ?? r.modelUsage.values.compactMap(\.contextWindow).max() {
                 stats.contextWindow = window
+            }
+            // `usage` is the *per-turn* block; `modelUsage` is cumulative for the session, so
+            // only this one describes what the last prompt weighed. Cached tokens count: they
+            // occupy the window exactly like uncached ones, they're just cheaper to send.
+            if let usage = r.usage {
+                stats.contextTokens = (usage.inputTokens ?? 0)
+                    + (usage.cacheReadInputTokens ?? 0)
+                    + (usage.cacheCreationInputTokens ?? 0)
             }
             for denial in r.permissionDenials {
                 attachDeniedInput(denial)

@@ -24,6 +24,8 @@ struct GlassContentView: View {
             AuroraBackdrop()
 
             VStack(spacing: 0) {
+                titleStrip
+
                 // The rail sits beside the *transcript only*, not beside the whole column.
                 // Wrapping the composer and status bar too would shove them sideways every
                 // time the panel opens, so the thing you're typing into would jump — and
@@ -33,8 +35,7 @@ struct GlassContentView: View {
 
                     if showingSidebar {
                         SidebarPanel(registry: registry,
-                                     workingDirectory: model.workingDirectory,
-                                     onClose: toggleSidebar)
+                                     workingDirectory: model.workingDirectory)
                             // Slides in from the edge it lives on; opacity alone made it
                             // appear to materialise on top of the transcript.
                             .transition(.move(edge: .trailing).combined(with: .opacity))
@@ -42,10 +43,13 @@ struct GlassContentView: View {
                 }
 
                 composer
+                ContextMeter(tokens: model.stats.contextTokens,
+                             window: model.stats.contextWindow)
+                    .padding(.horizontal, Tok.Space.loose)
+                    .padding(.bottom, Tok.Space.tight)
                 GlassStatusBar(stats: model.stats, isBusy: model.isBusy,
                                directory: model.workingDirectory,
                                assistantName: model.persona.assistantName,
-                               sidebarShowing: showingSidebar,
                                settings: model.settings,
                                namespace: glass,
                                onPickDirectory: pickDirectory,
@@ -54,7 +58,6 @@ struct GlassContentView: View {
                                    personas.reload()
                                    showingPersona = true
                                },
-                               onToggleSidebar: toggleSidebar,
                                onApplySettings: { next in
                                    sessionSettings.save(next)
                                    Task { await model.applySettings(next) }
@@ -119,6 +122,39 @@ struct GlassContentView: View {
         showingSidebar.toggle()
         registry.setVisible(showingSidebar)
     }
+
+    // MARK: Title strip
+
+    /// The window's only draggable region, and the home of the one Tools button.
+    ///
+    /// Both jobs belong together. The strip has to exist anyway — a hidden titlebar still
+    /// needs somewhere to grab the window, and after `isMovableByWindowBackground` was turned
+    /// off there was nowhere — and the button has to live somewhere that doesn't move when
+    /// the rail opens or closes. The window's trailing edge is the same place as the rail's
+    /// trailing edge, so a button pinned here reads as belonging to the panel while it's out
+    /// and stays exactly where you left it when it isn't.
+    private var titleStrip: some View {
+        HStack(spacing: 0) {
+            Spacer(minLength: 0)
+            Button(action: toggleSidebar) {
+                Image(systemName: "sidebar.right")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(showingSidebar ? Tok.Palette.agent : .secondary)
+                    .frame(width: 24, height: 24)
+            }
+            .buttonStyle(.glassCircle)
+            .glassEffect(Tok.Surface.interactive, in: .circle)
+            .help(showingSidebar ? "Hide tools (⌘⌥S)" : "Show tools (⌘⌥S)")
+        }
+        .padding(.horizontal, Tok.Space.snug)
+        .frame(height: Self.titleStripHeight)
+        // Behind the button, not over it: the button keeps its own clicks and the empty
+        // space either side of it drags the window.
+        .background(WindowDragStrip())
+    }
+
+    /// Tall enough to clear the traffic lights, which the hidden titlebar still draws.
+    private static let titleStripHeight: CGFloat = 32
 
     // MARK: Transcript
 
@@ -281,7 +317,86 @@ struct SendButton: View {
         .glassEffectID(GlassID.sendButton, in: namespace)
         .animation(Tok.Motion.resolved(Tok.Motion.touch, reduceMotion: reduceMotion),
                    value: side)
-        .help(isBusy ? "Interrupt (Esc)" : "Send (⌘↵)")
+        .help(isBusy ? "Interrupt (Esc)" : "Send (↵ — ⇧↵ for a new line)")
+    }
+}
+
+// MARK: - Context meter
+
+/// How full the conversation's context window is, sitting directly under the composer.
+///
+/// **This measures context, not quota, because quota has no number.** `rate_limit_event`
+/// carries `status`, `resetsAt`, `rateLimitType` and the overage flags — and no figure for
+/// how much of the window has been consumed. There is no `claude usage` subcommand either.
+/// A percentage bar for quota would therefore have to be invented, and an invented number in
+/// the one part of the UI whose whole job is honest accounting is worse than no bar. The
+/// quota chip in the status bar still says what the CLI actually reports: status and reset
+/// time. Context, by contrast, is measured exactly — `result.usage` is the per-turn prompt
+/// weight and `modelUsage[model].contextWindow` is the denominator.
+///
+/// It's also the number that changes what you do next: at 85% the next thing that happens is
+/// a compact, and knowing that before you write a long message is worth a strip of pixels.
+struct ContextMeter: View {
+    let tokens: Int?
+    let window: Int?
+
+    /// Nil until a turn has completed — there's nothing to report before the first result,
+    /// and a bar sitting at 0% would imply a measurement that hasn't happened.
+    private var fraction: Double? {
+        guard let tokens, let window, window > 0 else { return nil }
+        return min(Double(tokens) / Double(window), 1)
+    }
+
+    /// Amber from 70%, red from 90%. The thresholds are about what you'd do differently:
+    /// past 70 it's worth being deliberate about pasting large files, past 90 a compact is
+    /// imminent.
+    private func tint(_ fraction: Double) -> Color {
+        switch fraction {
+        case ..<0.7: return Tok.Palette.agent
+        case ..<0.9: return Tok.Palette.warn
+        default: return Tok.Palette.danger
+        }
+    }
+
+    var body: some View {
+        if let fraction, let tokens, let window {
+            VStack(alignment: .leading, spacing: 3) {
+                GeometryReader { geo in
+                    ZStack(alignment: .leading) {
+                        Capsule().fill(.white.opacity(0.08))
+                        Capsule()
+                            .fill(tint(fraction))
+                            // `max(…, 2)` so a non-zero context is never invisible: at 0.2%
+                            // of a 1M window the fill rounds to a fraction of a pixel and the
+                            // bar reads as empty, which is a different claim than "barely
+                            // used".
+                            .frame(width: max(geo.size.width * fraction, 2))
+                    }
+                }
+                .frame(height: 3)
+
+                HStack(spacing: 4) {
+                    Text("context")
+                        .foregroundStyle(.tertiary)
+                    Text("\(Int((fraction * 100).rounded()))%")
+                        .foregroundStyle(tint(fraction))
+                    Text("· \(compact(tokens)) / \(compact(window))")
+                        .foregroundStyle(.tertiary)
+                    Spacer(minLength: 0)
+                }
+                .font(.system(size: 9.5, design: .monospaced))
+            }
+            .help("\(tokens) of \(window) prompt tokens on the last turn, cached included.")
+            .animation(Tok.Motion.content, value: fraction)
+        }
+    }
+
+    private func compact(_ n: Int) -> String {
+        switch n {
+        case ..<1_000: return "\(n)"
+        case ..<1_000_000: return String(format: "%.0fk", Double(n) / 1_000)
+        default: return String(format: "%.1fM", Double(n) / 1_000_000)
+        }
     }
 }
 
@@ -379,12 +494,10 @@ struct GlassStatusBar: View {
     let isBusy: Bool
     let directory: URL
     let assistantName: String
-    let sidebarShowing: Bool
     let settings: SessionSettings
     let namespace: Namespace.ID
     let onPickDirectory: () -> Void
     let onEditPersona: () -> Void
-    let onToggleSidebar: () -> Void
     let onApplySettings: (SessionSettings) -> Void
 
     @State private var showingModelPicker = false
@@ -478,17 +591,6 @@ struct GlassStatusBar: View {
                 if let cost = stats.sessionCostUSD {
                     metric(String(format: "$%.4f", cost), tint: nil)
                 }
-
-                Button(action: onToggleSidebar) {
-                    Image(systemName: "sidebar.right")
-                        .font(.system(size: 9))
-                        .foregroundStyle(sidebarShowing ? Tok.Palette.agent : .secondary)
-                        .padding(.horizontal, Tok.Space.snug)
-                        .padding(.vertical, 5)
-                }
-                .buttonStyle(.glassChip)
-                .glassEffect(Tok.Surface.interactive, in: .capsule)
-                .help("Tools (⌘⌥S)")
             }
             .font(Tok.TypeScale.mono)
             .padding(.horizontal, Tok.Space.base)
@@ -671,7 +773,7 @@ struct GlassEmptyState: View {
                 .foregroundStyle(.tertiary)
                 .lineLimit(1)
                 .truncationMode(.head)
-            Text("⌘↵ send · Esc interrupt")
+            Text("↵ send · ⇧↵ newline · Esc interrupt")
                 .font(Tok.TypeScale.label)
                 .foregroundStyle(.tertiary)
         }
